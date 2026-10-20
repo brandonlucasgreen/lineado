@@ -30,6 +30,7 @@ struct LineadoApp: App {
             SettingsView()
                 .environment(delegate.appState)
                 .environment(delegate.updates)
+                .environment(delegate.loginItem)
         }
     }
 }
@@ -44,6 +45,7 @@ struct LineadoApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     let updates = UpdateController()
+    let loginItem = LoginItem()
     private var menuBar: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {

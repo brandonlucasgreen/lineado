@@ -292,3 +292,34 @@ struct DueDateStyleTests {
         #expect(!DueDateStyle.render(far, relativeTo: today).isAlarming)
     }
 }
+
+// MARK: - Login item
+
+import ServiceManagement
+
+@Suite("Open at login")
+struct LoginItemTests {
+
+    /// `requiresApproval` is the case that matters: registration *succeeded*,
+    /// but macOS is waiting on the user in System Settings, so the item will
+    /// not actually run at login. A toggle reading plainly "on" there would be
+    /// lying, which is why it maps to its own state rather than to `.enabled`.
+    @Test("Every SMAppService status maps to exactly one UI state")
+    func statusMapping() {
+        #expect(LoginItem.state(for: .enabled) == .enabled)
+        #expect(LoginItem.state(for: .notRegistered) == .disabled)
+        #expect(LoginItem.state(for: .requiresApproval) == .requiresApproval)
+        #expect(LoginItem.state(for: .notFound) == .unavailable)
+    }
+
+    /// The toggle shows "on" while awaiting approval, because the user *has*
+    /// asked for it — the warning beside it explains why it is not live yet.
+    /// Showing it off would invite them to click it again, which does nothing.
+    @Test("Awaiting approval still reads as on")
+    func approvalReadsAsOn() {
+        #expect(LoginItem.State.requiresApproval.isOn)
+        #expect(LoginItem.State.enabled.isOn)
+        #expect(!LoginItem.State.disabled.isOn)
+        #expect(!LoginItem.State.unavailable.isOn)
+    }
+}

@@ -78,6 +78,7 @@ struct AccountSettings: View {
 
 struct GeneralSettings: View {
     @Environment(AppState.self) private var app
+    @Environment(LoginItem.self) private var loginItem
 
     var body: some View {
         @Bindable var app = app
@@ -85,6 +86,41 @@ struct GeneralSettings: View {
         Form {
             Section("Shortcut") {
                 KeyboardShortcuts.Recorder("Toggle Lineado", name: .togglePanel)
+            }
+
+            Section {
+                Toggle("Open at login", isOn: Binding(
+                    get: { loginItem.state.isOn },
+                    set: { loginItem.setEnabled($0) }))
+                    .disabled(!loginItem.isEligible || loginItem.state == .unavailable)
+
+                // Registration can succeed and still not run at login, because
+                // macOS parks the item awaiting approval. Saying so — and
+                // offering the one action that fixes it — beats a toggle that
+                // reads "on" and does nothing.
+                if loginItem.state == .requiresApproval {
+                    HStack(spacing: 6) {
+                        Label("Needs your approval in System Settings",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                        Spacer()
+                        Button("Open…") { loginItem.openSystemSettings() }
+                            .controlSize(.small)
+                    }
+                }
+
+                if let error = loginItem.errorMessage {
+                    Label(error, systemImage: "xmark.octagon.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            } footer: {
+                if !loginItem.isEligible {
+                    Text("Move Lineado to your Applications folder to enable this — macOS registers the app at its current location, so a copy run from elsewhere would stop working when that folder changes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Refresh") {
@@ -108,6 +144,9 @@ struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .padding(.vertical, 8)
+        // The user can flip this in System Settings at any time; without a
+        // re-read the toggle would show a stale value until relaunch.
+        .onAppear { loginItem.refresh() }
     }
 }
 
