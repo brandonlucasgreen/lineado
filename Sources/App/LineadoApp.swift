@@ -59,6 +59,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     }
 
+    /// **Never terminate because no window is visible.**
+    ///
+    /// This is a menu bar app: having no window on screen is its normal
+    /// resting state, not the end of its life. Without this, dismissing the
+    /// panel with `Esc` ordered out the only visible window and AppKit shut
+    /// the whole app down — which looked exactly like a crash, and left no
+    /// crash report because nothing had crashed.
+    ///
+    /// Reproduced and then confirmed fixed by driving `close()` from a probe
+    /// with no window open and checking the process survived.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     /// The panel is not a window in the Dock-menu sense, so without this the
     /// app would have no response at all to being re-opened.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

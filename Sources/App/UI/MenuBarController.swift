@@ -31,6 +31,9 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
+    /// Whoever was frontmost when the panel opened, so Esc can hand the
+    /// keyboard straight back to them.
+    private var previousApp: NSRunningApplication?
     private let appState: AppState
     private let updates: UpdateController
 
@@ -92,12 +95,23 @@ final class MenuBarController: NSObject {
 
     // MARK: Opening and closing
 
+    /// Re-entrancy guard.
+    ///
+    /// Belt to the braces of `showContextMenu` no longer synthesising a click:
+    /// anything that re-enters this handler while it is running is a bug, and
+    /// a dropped click is a far better symptom than a blown stack.
+    private var isHandlingClick = false
+
     @objc private func statusItemClicked() {
-        if let event = NSApp.currentEvent, event.type == .rightMouseUp {
-            showContextMenu()
-        } else {
-            toggle()
-        }
+        guard !isHandlingClick else { return }
+        isHandlingClick = true
+        defer { isHandlingClick = false }
+
+        let isSecondary = NSApp.currentEvent.map { event in
+            event.type == .rightMouseUp || event.modifierFlags.contains(.control)
+        } ?? false
+
+        if isSecondary { showContextMenu() } else { toggle() }
     }
 
     var isOpen: Bool { panel?.isVisible ?? false }
@@ -107,6 +121,11 @@ final class MenuBarController: NSObject {
     }
 
     func open() {
+        // Captured before we activate, or it would just be us.
+        if !NSApp.isActive {
+            previousApp = NSWorkspace.shared.frontmostApplication
+        }
+
         let panel = panel ?? makePanel()
         self.panel = panel
         position(panel)
@@ -121,15 +140,25 @@ final class MenuBarController: NSObject {
     }
 
     /// Hides the panel. `restoringFocus` hands the keyboard back to whatever
-    /// app you were in — what `Esc` should do, and what clicking away does on
-    /// its own anyway.
+    /// app you were in — what `Esc` should do.
+    ///
+    /// **Reactivates that app explicitly; never `NSApp.hide(nil)`.** Hiding
+    /// took the whole app down with the panel, which read as Esc quitting
+    /// Lineado — and left no crash report, because nothing crashed. Naming the
+    /// app to activate is both narrower and more accurate: the point was never
+    /// to hide ourselves, it was to give focus back.
     func close(restoringFocus: Bool = false) {
         panel?.orderOut(nil)
         statusItem?.button?.highlight(false)
         stopOutsideClickMonitor()
-        if restoringFocus {
-            NSApp.hide(nil)
+
+        if restoringFocus,
+           let previousApp,
+           previousApp.bundleIdentifier != Bundle.main.bundleIdentifier,
+           !previousApp.isTerminated {
+            previousApp.activate()
         }
+        previousApp = nil
     }
 
     private func makePanel() -> NSPanel {
@@ -203,21 +232,42 @@ final class MenuBarController: NSObject {
 
     // MARK: Right-click menu
 
+    /// Pops the menu up directly.
+    ///
+    /// **Not** by assigning `statusItem.menu` and calling `performClick`. That
+    /// is the widely-posted trick and it is infinitely recursive here:
+    /// `performClick` synchronously re-invokes the button's action, which
+    /// lands back in `statusItemClicked`, where `NSApp.currentEvent` is still
+    /// the same right-mouse-up — so it calls this method again, forever, until
+    /// the stack is gone. There is no base case.
+    ///
+    /// `popUp(positioning:at:in:)` needs no click to synthesise and no
+    /// temporary mutation of the status item, so neither problem exists.
     private func showContextMenu() {
+        guard let button = statusItem?.button else { return }
+
         let menu = NSMenu()
-        menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "r")
-            .target = self
+        for (title, action, key) in [
+            ("Refresh", #selector(refresh), "r"),
+            ("Open in Window", #selector(openWindow), "0"),
+        ] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: key).target = self
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
             .target = self
         menu.addItem(withTitle: "Quit Lineado", action: #selector(quit), keyEquivalent: "q")
             .target = self
 
-        statusItem?.menu = menu
-        statusItem?.button?.performClick(nil)
-        // Detach immediately, or the menu replaces the click action for good
-        // and the panel can never open again.
-        statusItem?.menu = nil
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: 0, y: button.bounds.height + 4),
+                   in: button)
+    }
+
+    @objc private func openWindow() {
+        close()
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
     }
 
     @objc private func refresh() { Task { await appState.refresh() } }

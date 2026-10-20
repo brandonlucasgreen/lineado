@@ -253,8 +253,12 @@ struct PanelView: View {
             // and its own ↑/↓, and letting the list also act on those keys is
             // how a picker ends up moving the selection behind itself.
             guard activePicker == nil else { return event }
-            guard !isEditingText else { return event }
             guard let key = KeyInput(event) else { return event }
+            // While a text field has focus the panel keeps its hands off —
+            // except for Esc, which is always ours. Letting it through would
+            // hit the panel's default `cancelOperation:` and dismiss the whole
+            // thing, when what Esc should do first is clear the field.
+            guard !isEditingText || key == .escape else { return event }
             let modifiers = KeyModifiers(event.modifierFlags)
             guard let action = KeyMap.action(
                 for: key, modifiers: modifiers, isSearching: app.isSearchFocused)
