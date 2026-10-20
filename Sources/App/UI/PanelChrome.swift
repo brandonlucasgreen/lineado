@@ -248,26 +248,6 @@ struct UnconfiguredView: View {
     }
 }
 
-/// Temporary trace for the global hotkey, written to
-/// `~/Library/Application Support/Lineado/hotkey.log`.
-///
-/// Delete this type and its three call sites once a real key press has been
-/// confirmed to open the panel. It exists because this bug has survived two
-/// plausible fixes, and guessing a third time is worse than measuring.
-enum PanelDiagnostic {
-    nonisolated static func record(_ message: String) {
-        let text = "[\(Date())] \(message)\n"
-        let url = Storage.directory.appendingPathComponent("hotkey.log")
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(Data(text.utf8))
-            try? handle.close()
-        } else {
-            try? text.write(to: url, atomically: true, encoding: .utf8)
-        }
-    }
-}
-
 // MARK: - Settings window
 
 /// Opens Settings and actually puts it in front.
@@ -281,10 +261,18 @@ enum PanelDiagnostic {
 @MainActor
 enum SettingsWindow {
     static func open(using openSettings: OpenSettingsAction) {
-        // The panel is a popover over everything; leaving it up means Settings
-        // opens behind it even once it is frontmost.
-        PanelToggler.close()
         openSettings()
+        bringToFront()
+    }
+
+    /// For the status item's right-click menu, which has no SwiftUI
+    /// environment to read `openSettings` from.
+    static func openFromMenuBar() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        bringToFront()
+    }
+
+    private static func bringToFront() {
 
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
@@ -302,77 +290,5 @@ enum SettingsWindow {
             if window.identifier?.rawValue.contains("Settings") == true { return true }
             return window.title == "Settings" || window.title.hasSuffix("Settings")
         }
-    }
-}
-
-// MARK: - Panel toggling
-
-/// Opens and closes the `MenuBarExtra` window from code.
-///
-/// SwiftUI gives no API for this, so the status item's button is found in
-/// AppKit and clicked. Ported from Inbox & Chill's `PanelToggler`, where it
-/// backs the global hotkey.
-@MainActor
-enum PanelToggler {
-    /// Finds the `MenuBarExtra`'s button by walking the view hierarchy of the
-    /// status bar window.
-    ///
-    /// **Never by KVC.** The first version of this asked every `NSWindow` for
-    /// `value(forKey: "statusItem")`, which raises `NSUnknownKeyException` on
-    /// the windows that do not have it — an Objective-C exception Swift cannot
-    /// catch, so it is a hard crash, not a nil. It would have fired on the
-    /// global hotkey and on every `Esc` that closed the panel.
-    private static var statusItemButton: NSStatusBarButton? {
-        for window in NSApp.windows where window.className.contains("StatusBar") {
-            if let button = statusBarButton(in: window.contentView) { return button }
-        }
-        return nil
-    }
-
-    private static func statusBarButton(in view: NSView?) -> NSStatusBarButton? {
-        guard let view else { return nil }
-        if let button = view as? NSStatusBarButton { return button }
-        for subview in view.subviews {
-            if let found = statusBarButton(in: subview) { return found }
-        }
-        return nil
-    }
-
-    static func toggle() {
-        guard let button = statusItemButton else { return }
-        NSApp.activate(ignoringOtherApps: true)
-
-        // Invoke the button's own action rather than synthesising a click.
-        //
-        // `performClick` consults the **live modifier state**, and a global
-        // hotkey's modifiers are still physically held when `onKeyUp` fires —
-        // so a ⌃-based shortcut (⌃⌥L) arrives as a *Control-click*, which
-        // macOS treats as a secondary click and the panel ignores. That is why
-        // the handler fired ten times for ten presses and nothing opened,
-        // while the same call from a timer with no modifiers down worked
-        // first try.
-        //
-        // The target/action path does not read modifiers at all, so it
-        // behaves the same whichever shortcut the user picked.
-        DispatchQueue.main.async {
-            if let target = button.target as? NSObject,
-               let action = button.action,
-               target.responds(to: action) {
-                target.perform(action, with: button)
-                PanelDiagnostic.record("toggle via target/action")
-            } else {
-                button.performClick(nil)
-                PanelDiagnostic.record("toggle via performClick (no target/action)")
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                let panels = NSApp.windows.filter { $0.className.contains("StatusBar") }.count
-                PanelDiagnostic.record("after toggle: statusBarWindows=\(panels) (1 = still closed)")
-            }
-        }
-    }
-
-    static func close() {
-        guard let button = statusItemButton, button.state == .on else { return }
-        button.performClick(nil)
     }
 }

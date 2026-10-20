@@ -11,6 +11,7 @@ struct PanelView: View {
     @Environment(AppState.self) private var app
     @Environment(\.openURL) private var openURL
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.menuBarController) private var menuBar
 
     @State private var activePicker: ActivePicker?
     @State private var keyMonitor: Any?
@@ -39,16 +40,11 @@ struct PanelView: View {
             }
             FooterView()
         }
-        .frame(width: 460, height: 560)
-        // An opaque background, not the MenuBarExtra default.
-        //
-        // The default is a thin material, and over a bright window the
-        // show-through put the desktop's own text behind these rows: readable
-        // in a screenshot, not readable in use. A menu bar panel is a reading
-        // surface before it is a decorative one, so it gets the window
-        // background colour — which still tracks light and dark, and still
-        // sits inside the system's rounded panel shape.
-        .background(Color(nsColor: .windowBackgroundColor))
+        // Size and background belong to the hosting `NSPanel` now
+        // (`MenuBarController.makePanel`), which sets an opaque
+        // `windowBackgroundColor`. The old thin material let the desktop's own
+        // text show through behind these rows.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .center) { pickerOverlay }
         .sheet(isPresented: $showsAllShortcuts) {
             VStack(spacing: 0) {
@@ -67,6 +63,9 @@ struct PanelView: View {
         // down when it closes, so a loop owned here would never run while the
         // panel is shut — which is most of the time, and exactly when the menu
         // bar count needs to stay honest.
+        // Refresh whenever the panel opens. The poll loop itself is started
+        // once by `AppDelegate` and runs for the app's whole life, so the
+        // count beside the icon stays honest while the panel is closed.
         .task { await app.refresh() }
     }
 
@@ -348,13 +347,17 @@ struct PanelView: View {
             } else if app.expandedID != nil {
                 app.expandedID = nil
             } else {
-                PanelToggler.close()
+                // Esc on the bare panel hides it **and hands the keyboard back
+                // to whatever app you came from** (Brandon, 2026-10-20).
+                // Dismissing without that leaves an accessory app holding
+                // focus and nothing on screen to type into.
+                menuBar?.close(restoringFocus: true)
             }
         case .openWindow:
             // `NSApp.sendAction(Selector(("openMainWindow:")))` was a guess and
             // no such selector exists, so ⌘0 silently did nothing. The scene's
             // own id is the supported route.
-            PanelToggler.close()
+            menuBar?.close()
             openWindow(id: "main")
         }
     }

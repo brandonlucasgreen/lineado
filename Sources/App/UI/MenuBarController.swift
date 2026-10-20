@@ -1,0 +1,249 @@
+import AppKit
+import Observation
+import SwiftUI
+
+/// Owns the menu bar item and the panel, directly.
+///
+/// **Why this exists instead of `MenuBarExtra`.** SwiftUI's `MenuBarExtra`
+/// gives no API for opening its panel from code, and the usual workaround —
+/// finding the `NSStatusBarButton` and calling `performClick` — does not work
+/// on this macOS. That was measured, not assumed:
+///
+/// - The handler fires (ten traced presses, ten firings).
+/// - The button is found, and it is the *right* button: of the eleven
+///   `NSStatusBarWindow`s the system creates, exactly one is on screen and
+///   carries our title; the other ten are empty placeholders parked at y=-39.
+/// - That button has `target == nil` and `action == nil`, so `performClick`
+///   has nothing to dispatch.
+/// - Synthesising a mouse event with `sendEvent` **hangs the app**: a status
+///   item's mouse-down enters a modal tracking run loop waiting for the
+///   matching mouse-up, so delivering the down synchronously blocks the main
+///   thread inside that loop. A sample showed it parked in a nested
+///   `CFRunLoopRun`. Posting both events to the queue instead does not hang,
+///   and also does not open the panel.
+///
+/// So the panel is ours: an `NSStatusItem` and an `NSPanel` we create and
+/// position. That also makes two things possible that `MenuBarExtra` does not
+/// allow at all — dismissing on `Esc` with focus returned to the app you came
+/// from, and closing when you click away.
+@MainActor
+final class MenuBarController: NSObject {
+    private var statusItem: NSStatusItem?
+    private var panel: NSPanel?
+    private var outsideClickMonitor: Any?
+    private let appState: AppState
+    private let updates: UpdateController
+
+    init(appState: AppState, updates: UpdateController) {
+        self.appState = appState
+        self.updates = updates
+        super.init()
+    }
+
+    // MARK: Setup
+
+    func install() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked)
+        // Without this the button only reports left clicks, and a right click
+        // would do nothing at all rather than offering the menu.
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem = item
+        updateButton()
+        observeState()
+    }
+
+    /// Redraws the icon and count whenever the model changes.
+    ///
+    /// `withObservationTracking` fires once per change, so it re-arms itself.
+    /// This replaces the `.task` that used to hang off the `MenuBarExtra`
+    /// label — which was cancelled on every re-render, because the label
+    /// displayed the very count it depended on.
+    private func observeState() {
+        withObservationTracking {
+            _ = appState.orderedIssues.count
+            _ = appState.overdueCount
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.updateButton()
+                self?.observeState()
+            }
+        }
+    }
+
+    private func updateButton() {
+        guard let button = statusItem?.button else { return }
+        let count = appState.orderedIssues.count
+        // Solid when something is waiting, hollow only at zero — the read
+        // Inbox & Chill's glyphs carry, so the two apps look like a pair.
+        let symbol = count == 0 ? "hand.point.right" : "hand.point.right.fill"
+        let description = count == 0
+            ? "Lineado: nothing assigned"
+            : (appState.overdueCount > 0
+                ? "Lineado: \(count) tasks, \(appState.overdueCount) overdue"
+                : "Lineado: \(count) tasks")
+
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        button.image?.isTemplate = true
+        button.imagePosition = .imageLeading
+        button.title = count == 0 ? "" : " \(count)"
+    }
+
+    // MARK: Opening and closing
+
+    @objc private func statusItemClicked() {
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp {
+            showContextMenu()
+        } else {
+            toggle()
+        }
+    }
+
+    var isOpen: Bool { panel?.isVisible ?? false }
+
+    func toggle() {
+        if isOpen { close() } else { open() }
+    }
+
+    func open() {
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        position(panel)
+
+        // `.nonactivatingPanel` would keep the app in the background, but then
+        // the filter field and the comment composer could never take a
+        // keystroke. Activating is what makes the panel usable.
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        statusItem?.button?.highlight(true)
+        startOutsideClickMonitor()
+    }
+
+    /// Hides the panel. `restoringFocus` hands the keyboard back to whatever
+    /// app you were in — what `Esc` should do, and what clicking away does on
+    /// its own anyway.
+    func close(restoringFocus: Bool = false) {
+        panel?.orderOut(nil)
+        statusItem?.button?.highlight(false)
+        stopOutsideClickMonitor()
+        if restoringFocus {
+            NSApp.hide(nil)
+        }
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = KeyablePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
+            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false)
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovable = false
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.level = .popUpMenu
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        panel.backgroundColor = .windowBackgroundColor
+        panel.hasShadow = true
+        // Follows the active Space rather than yanking you to another one.
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+
+        let root = PanelView()
+            .environment(appState)
+            .environment(updates)
+            .environment(\.menuBarController, self)
+            .frame(width: 460, height: 560)
+
+        let hosting = NSHostingView(rootView: root)
+        hosting.frame = panel.contentLayoutRect
+        panel.contentView = hosting
+        return panel
+    }
+
+    /// Places the panel under the menu bar icon, nudged inside the screen if
+    /// the icon sits near the right edge.
+    private func position(_ panel: NSPanel) {
+        guard let button = statusItem?.button,
+              let buttonWindow = button.window,
+              let screen = buttonWindow.screen ?? NSScreen.main
+        else { return }
+
+        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let size = panel.frame.size
+        var origin = NSPoint(
+            x: buttonFrame.midX - size.width / 2,
+            y: buttonFrame.minY - size.height - 6)
+
+        let visible = screen.visibleFrame
+        origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
+        origin.y = max(origin.y, visible.minY + 8)
+        panel.setFrameOrigin(origin)
+    }
+
+    // MARK: Click-away
+
+    /// Closes the panel when you click outside it, the way a real menu does.
+    private func startOutsideClickMonitor() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in self?.close() }
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
+    }
+
+    // MARK: Right-click menu
+
+    private func showContextMenu() {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "r")
+            .target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+            .target = self
+        menu.addItem(withTitle: "Quit Lineado", action: #selector(quit), keyEquivalent: "q")
+            .target = self
+
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        // Detach immediately, or the menu replaces the click action for good
+        // and the panel can never open again.
+        statusItem?.menu = nil
+    }
+
+    @objc private func refresh() { Task { await appState.refresh() } }
+    @objc private func openSettings() { SettingsWindow.openFromMenuBar() }
+    @objc private func quit() { NSApp.terminate(nil) }
+}
+
+/// A panel that can take keyboard focus.
+///
+/// `NSPanel` refuses key status by default when it has no title bar, which
+/// would leave the filter field and the comment composer unable to receive a
+/// single keystroke.
+final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+// MARK: - Environment
+
+private struct MenuBarControllerKey: EnvironmentKey {
+    static let defaultValue: MenuBarController? = nil
+}
+
+extension EnvironmentValues {
+    var menuBarController: MenuBarController? {
+        get { self[MenuBarControllerKey.self] }
+        set { self[MenuBarControllerKey.self] = newValue }
+    }
+}
