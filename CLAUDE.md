@@ -261,8 +261,15 @@ planning. Four writes only: status, priority, due date, comment.
 executable form. If a feature request needs it relaxed, that is a `PLAN.md`
 conversation first.
 
-## One more macOS fact that shaped the app
+## Three more macOS facts that shaped the app
 
+- **A `.titled` panel reserves its title bar height** even with the bar hidden
+  and transparent and `.fullSizeContentView` set — a band of dead space above
+  the content. `MenuBarController.makePanel` uses `.borderless`, so the
+  reservation cannot exist. The cost: a borderless window refuses key status
+  by default (hence `KeyablePanel.canBecomeKey`, without which no text field
+  in the panel takes a keystroke) and draws no background, corners or border,
+  so the SwiftUI root supplies all three.
 - **An `LSUIElement` app is never "active"**, so a window it opens is ordered
   into a layer behind whatever the user was looking at. `SettingsWindow.open`
   closes the panel, activates the app, and orders the window front — on the
