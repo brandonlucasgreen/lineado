@@ -10,9 +10,11 @@ import SwiftUI
 struct PanelView: View {
     @Environment(AppState.self) private var app
     @Environment(\.openURL) private var openURL
+    @Environment(\.openWindow) private var openWindow
 
     @State private var activePicker: ActivePicker?
     @State private var keyMonitor: Any?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         @Bindable var app = app
@@ -36,10 +38,13 @@ struct PanelView: View {
         .overlay(alignment: .center) { pickerOverlay }
         .onAppear(perform: startKeyMonitor)
         .onDisappear(perform: stopKeyMonitor)
-        .task {
-            app.start()
-            await app.refresh()
-        }
+        // Refresh on open, but do NOT start or stop the poll loop here. The
+        // loop belongs to the app, not to this view: `MenuBarExtra(.window)`
+        // builds its content only when the panel is first clicked and tears it
+        // down when it closes, so a loop owned here would never run while the
+        // panel is shut — which is most of the time, and exactly when the menu
+        // bar count needs to stay honest.
+        .task { await app.refresh() }
     }
 
     // MARK: Header
@@ -52,6 +57,10 @@ struct PanelView: View {
                 TextField("Filter…", text: $app.searchText)
                     .textFieldStyle(.plain)
                     .font(.callout)
+                    .focused($searchFocused)
+                    .onChange(of: searchFocused) { _, focused in
+                        app.isSearchFocused = focused
+                    }
 
                 if !app.searchText.isEmpty {
                     Button {
@@ -222,6 +231,7 @@ struct PanelView: View {
             // and its own ↑/↓, and letting the list also act on those keys is
             // how a picker ends up moving the selection behind itself.
             guard activePicker == nil else { return event }
+            guard !isEditingText else { return event }
             guard let key = KeyInput(event) else { return event }
             let modifiers = KeyModifiers(event.modifierFlags)
             guard let action = KeyMap.action(
@@ -235,7 +245,21 @@ struct PanelView: View {
     private func stopKeyMonitor() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
-        app.stop()
+    }
+
+    /// Whether a text field is currently taking keystrokes.
+    ///
+    /// The monitor below sees **every** key the app receives, so without this
+    /// check it swallows typing: the comment composer was completely unusable
+    /// (every letter routed to a verb — "e" completed the task you were
+    /// commenting on) and the filter field only worked by accident.
+    ///
+    /// When text has focus the panel keeps its hands off entirely, including
+    /// `⌘C` and `⌘Z`, which must mean copy-text and undo-typing there.
+    private var isEditingText: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+        if let textView = responder as? NSTextView { return textView.isFieldEditor || textView.isEditable }
+        return responder is NSTextField
     }
 
     private func handle(_ action: PanelAction) {
@@ -284,7 +308,7 @@ struct PanelView: View {
             let chips = app.teamChips
             app.preferences.teamID = chips.indices.contains(index) ? chips[index].team.id : nil
         case .focusSearch:
-            app.isSearchFocused = true
+            searchFocused = true
         case .appendSearch(let character):
             app.searchText.append(character)
         case .deleteSearchCharacter:
@@ -302,8 +326,11 @@ struct PanelView: View {
                 PanelToggler.close()
             }
         case .openWindow:
+            // `NSApp.sendAction(Selector(("openMainWindow:")))` was a guess and
+            // no such selector exists, so ⌘0 silently did nothing. The scene's
+            // own id is the supported route.
             PanelToggler.close()
-            NSApp.sendAction(Selector(("openMainWindow:")), to: nil, from: nil)
+            openWindow(id: "main")
         }
     }
 

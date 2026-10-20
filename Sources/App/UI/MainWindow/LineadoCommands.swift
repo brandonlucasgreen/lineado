@@ -170,9 +170,8 @@ struct MainWindowView: View {
             FooterView()
         }
         .frame(minWidth: 560, minHeight: 400)
-        .task {
-            app.start()
-            await app.refresh()
-        }
+        // Refresh on open only; the poll loop belongs to the app (see
+        // `LineadoApp`), so opening and closing this window never interrupts it.
+        .task { await app.refresh() }
     }
 }

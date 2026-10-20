@@ -20,7 +20,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="${1:-build/Release/Build/Products/Release/Lineado.app}"
+RELEASE=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --release) RELEASE=1 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+
+APP="${ARGS[0]:-build/Release/Build/Products/Release/Lineado.app}"
 PLIST="$APP/Contents/Info.plist"
 FAILED=0
 
@@ -58,10 +67,21 @@ else
 fi
 
 # Trap 1: the whole reason this script exists.
+#
+# The placeholder is a deliberate, recorded decision (project.yml), so it is
+# only a note on a local build — and a hard failure under --release, which is
+# what stops it reaching a tag.
 feed="$(plist_value SUFeedURL)"
 case "$feed" in
   https://*)
     pass "SUFeedURL = $feed"
+    ;;
+  UNSET-pending-domain)
+    if [ "$RELEASE" -eq 1 ]; then
+      fail "SUFeedURL is still the placeholder — pick the real feed domain before tagging"
+    else
+      note "SUFeedURL is the placeholder (no domain yet). Fine locally; --release refuses it."
+    fi
     ;;
   "")
     fail "SUFeedURL is EMPTY — updates can never be found (see trap 1 above)"
@@ -77,6 +97,8 @@ esac
 ed_key="$(plist_value SUPublicEDKey)"
 if [ -n "$ed_key" ]; then
   pass "SUPublicEDKey present (${#ed_key} chars)"
+elif [ "$RELEASE" -eq 1 ]; then
+  fail "SUPublicEDKey is empty — a released build could never verify an update. Run scripts/sparkle-keys.sh"
 else
   note "SUPublicEDKey is empty — fine locally, FATAL for a release. Run scripts/sparkle-keys.sh"
 fi

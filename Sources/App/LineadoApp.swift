@@ -23,6 +23,13 @@ struct LineadoApp: App {
         } label: {
             MenuBarLabel(count: app.orderedIssues.count,
                          overdue: app.overdueCount)
+                // The label is the one view that exists for the app's whole
+                // life, so it owns the poll loop. `MenuBarExtra(.window)`
+                // builds its *content* lazily — only on the first click — so a
+                // loop started in `PanelView` would never run while the panel
+                // was closed, and the count beside this glyph would be frozen
+                // at whatever the last open left behind.
+                .task { app.start() }
         }
         .menuBarExtraStyle(.window)
 

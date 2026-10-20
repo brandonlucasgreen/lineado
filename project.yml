@@ -68,16 +68,27 @@ targets:
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false
         # ---------------------------------------------------------------
-        # Sparkle. These three keys are set HERE and not via
-        # INFOPLIST_KEY_<name> build settings, because Xcode only synthesises
-        # INFOPLIST_KEY_* for keys it already knows and SUFeedURL is not one
-        # of them. Inbox & Chill shipped a bundle with no feed URL that way,
-        # and nothing warned. scripts/verify-bundle.sh asserts all three.
+        # Sparkle. These keys are set HERE and not via INFOPLIST_KEY_<name>
+        # build settings, because Xcode only synthesises INFOPLIST_KEY_* for
+        # keys it already knows and SUFeedURL is not one of them. Inbox & Chill
+        # shipped a bundle with no feed URL that way, and nothing warned.
         #
-        # SUFeedURL is load-bearing and effectively permanent: changing it
-        # after the first public release strands every existing install.
-        # ---------------------------------------------------------------
-        SUFeedURL: https://brandonlucasgreen.github.io/lineado/appcast.xml
+        # --- DELIBERATELY UNSET (Brandon, 2026-10-20) ---------------------
+        # The feed will live on a domain that is not bought yet, and there are
+        # no public updates planned for a while. SUFeedURL is effectively
+        # permanent — changing it after the first public release strands every
+        # existing install — so it stays a placeholder until the domain exists.
+        #
+        # The placeholder is not a URL on purpose. An empty string reads as a
+        # bug; a plausible-looking https:// URL is worse, because it would let
+        # a release ship pointing at a feed nobody owns. This value cannot be
+        # mistaken for either, and scripts/verify-bundle.sh --release FAILS on
+        # it, so the decision has to be made before a tag can be cut.
+        SUFeedURL: "UNSET-pending-domain"
+        # Both off until there is a real feed: with no URL and no key there is
+        # nothing to check, and a background check that can only fail is just a
+        # daily error nobody can act on.
+        SUEnableAutomaticChecks: false
         SUEnableInstallerLauncherService: false
         SUPublicEDKey: "" # filled by scripts/sparkle-keys.sh, one time
 

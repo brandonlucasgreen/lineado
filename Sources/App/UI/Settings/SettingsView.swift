@@ -127,12 +127,15 @@ struct UpdateSettings: View {
                 LabeledContent("Feed", value: updates.feedURL)
                     .font(.caption)
             } else {
-                // A build with no signing key can never install an update.
-                // Saying so here beats a button that fails silently months
-                // later — Inbox & Chill's trap 3.
+                // A build that cannot install an update says so, rather than
+                // offering a button that fails silently months later —
+                // Inbox & Chill's trap 3.
                 Section {
-                    Label("This build has no update-signing key", systemImage: "info.circle")
-                    Text("Builds you make yourself can't verify an update, so automatic updates are off. Released builds carry the key.")
+                    Label(updates.hasRealFeed
+                          ? "This build has no update-signing key"
+                          : "In-app updates aren't set up yet",
+                          systemImage: "info.circle")
+                    Text(updates.unavailableReason)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -251,18 +251,28 @@ struct UnconfiguredView: View {
 /// backs the global hotkey.
 @MainActor
 enum PanelToggler {
+    /// Finds the `MenuBarExtra`'s button by walking the view hierarchy of the
+    /// status bar window.
+    ///
+    /// **Never by KVC.** The first version of this asked every `NSWindow` for
+    /// `value(forKey: "statusItem")`, which raises `NSUnknownKeyException` on
+    /// the windows that do not have it — an Objective-C exception Swift cannot
+    /// catch, so it is a hard crash, not a nil. It would have fired on the
+    /// global hotkey and on every `Esc` that closed the panel.
     private static var statusItemButton: NSStatusBarButton? {
-        for window in NSApp.windows {
-            if let button = window.value(forKey: "statusItem") as? NSStatusItem {
-                return button.button
-            }
+        for window in NSApp.windows where window.className.contains("StatusBar") {
+            if let button = statusBarButton(in: window.contentView) { return button }
         }
-        // The MenuBarExtra's button is a status bar button in a window whose
-        // class is private; walking the window list for it is the documented-
-        // enough path and degrades to nil rather than crashing.
-        return NSApp.windows
-            .compactMap { $0.contentView?.superview as? NSStatusBarButton }
-            .first
+        return nil
+    }
+
+    private static func statusBarButton(in view: NSView?) -> NSStatusBarButton? {
+        guard let view else { return nil }
+        if let button = view as? NSStatusBarButton { return button }
+        for subview in view.subviews {
+            if let found = statusBarButton(in: subview) { return found }
+        }
+        return nil
     }
 
     static func toggle() {
