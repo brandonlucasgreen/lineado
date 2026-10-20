@@ -40,7 +40,7 @@ scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
 Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 58 of them, all
 over pure functions — there is no UI test and no network test.
 
-## Six things this codebase already learned
+## Eight things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -115,6 +115,34 @@ when you flip the direction, so a descending due-date sort opens on forty
 undated issues. `Ordering.partition` splits them off *before* direction is
 applied. "No date" is the absence of a sort key, not an extreme value of one.
 
+### 7. `layoutPriority` does not stop a view wrapping — `fixedSize` does
+
+SwiftUI resolves a crowded `HStack` by compressing the **narrowest** views
+first. Priority decides who gives up space, not whether a view may wrap, so a
+high-priority title still squeezed the status pill below its text width and the
+pill wrapped one letter per line: seven-line-tall rows reading "B a c k l o g".
+
+`IssueRowView` therefore allows exactly **one** flexible element — the title,
+which truncates — and `fixedSize()`s everything else. It also hides chrome the
+group header already carries: grouping by status drops the pill, grouping by
+priority drops the icon. On a 460pt panel that is the difference between a
+readable title and an ellipsis.
+
+### 8. A `.task` on the `MenuBarExtra` label is cancelled on every re-render
+
+`.task` is tied to view identity, and the label displays the issue count — so
+it re-renders whenever the count changes, cancelling the task each time. A
+4-second probe in there never fired once.
+
+`app.start()` survives only because it is fire-and-forget: it stores its own
+`Task` and guards re-entry, so killing the launcher does not kill the loop.
+Anything that must run to completion belongs outside the view.
+
+The loop is on the label rather than in `PanelView` for the related reason that
+`MenuBarExtra(.window)` builds its **content** lazily — on first click — and
+tears it down on close, so a loop owned by the panel runs only while the panel
+is open, which is exactly when the count does not need to be live.
+
 ## Architecture
 
 - **No database.** Linear owns the data; every issue has a canonical remote
@@ -163,6 +191,19 @@ planning. Four writes only: status, priority, due date, comment.
 executable form. If a feature request needs it relaxed, that is a `PLAN.md`
 conversation first.
 
+## Two macOS facts that shaped the app
+
+- **An `LSUIElement` app is never "active"**, so a window it opens is ordered
+  into a layer behind whatever the user was looking at. `SettingsWindow.open`
+  closes the panel, activates the app, and orders the window front — on the
+  *next* runloop turn, because the window does not exist until `openSettings()`
+  returns.
+- **Keychain ACLs are keyed to the code signature, not the bundle id.** An
+  ad-hoc-signed debug build reading a key the Developer ID build saved prompts
+  the user for their login keychain password. Build Release with the real
+  identity when touching anything that reads the Keychain, and if a prompt
+  appears tell the user to click **Deny**, never "Always Allow".
+
 ## Still unverified
 
 **Nothing in this repo has run against a live Linear API key.** The query shapes
@@ -178,3 +219,16 @@ Linear MCP; the mutations have never executed. Before trusting any write path:
    which is the one the variables type exists for.
 
 Say plainly in any PR which of these you did and which you did not.
+
+### The global hotkey is unexplained
+
+Brandon reports ⌃⌥L does nothing. Everything measurable works: the shortcut
+stores, the handler registers at launch, and `PanelToggler.toggle()` opens the
+panel even with another app frontmost (verified 2026-10-20 by probing with
+another app in front). osascript cannot simulate the press — it is blocked from
+sending keystrokes without accessibility permission.
+
+`PanelToggler.diagnose` writes one line to
+`~/Library/Application Support/Lineado/window-diagnostic.log` when the handler
+fires. **Delete it and its two callers in `LineadoApp.init()` once a real key
+press has been seen** — it is scaffolding, not a feature.
