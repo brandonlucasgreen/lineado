@@ -1,6 +1,24 @@
 import AppKit
 import SwiftUI
 
+/// Marks which chip row the arrow keys are currently acting on.
+///
+/// Without this the focus model is invisible: pressing `↑` would silently
+/// change what `←`/`→` do, with nothing on screen to say so.
+struct FocusBandBackground: View {
+    let isFocused: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(isFocused ? Color.accentColor.opacity(0.10) : .clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(isFocused ? Color.accentColor.opacity(0.45) : .clear))
+            .padding(.horizontal, 6)
+            .animation(.easeOut(duration: 0.12), value: isFocused)
+    }
+}
+
 /// The workspace filter row, shown only when more than one is configured.
 ///
 /// Sits above the team chips because the two dimensions nest: teams belong to
@@ -50,6 +68,8 @@ struct WorkspaceChips: View {
             }
             .scrollIndicators(.never)
             .frame(height: 24)
+            .background(FocusBandBackground(isFocused: app.filterFocus == .workspaces))
+            .onTapGesture { app.filterFocus = .workspaces }
         }
     }
 
@@ -113,6 +133,8 @@ struct TeamChips: View {
         }
         .scrollIndicators(.never)
         .frame(height: 24)
+        .background(FocusBandBackground(isFocused: app.filterFocus == .teams))
+        .onTapGesture { app.filterFocus = .teams }
     }
 
     private func chip(

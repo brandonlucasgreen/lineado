@@ -52,24 +52,13 @@ struct IssueListView: View {
             // a readable title and an ellipsis.
             showsTeam: app.preferences.teamID == nil && app.preferences.groupBy != .team,
             showsStatus: app.preferences.groupBy != .status,
-            showsPriority: app.preferences.groupBy != .priority,
-            // `CORE-123` can exist in two workspaces, so the row has to say
-            // which — unless a workspace is already picked or grouped by.
-            workspaceLabel: workspaceLabel(for: issue))
+            showsPriority: app.preferences.groupBy != .priority)
         .onTapGesture {
             app.selectionID = issue.id
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded { open(issue) })
         .contextMenu { IssueContextMenu(issue: issue) }
-    }
-
-    private func workspaceLabel(for issue: Issue) -> String? {
-        guard app.showsWorkspaceDimension,
-              app.preferences.workspaceID == nil,
-              app.preferences.groupBy != .workspace
-        else { return nil }
-        return app.workspaces.workspace(id: issue.workspaceID)?.shortLabel
     }
 
     private func open(_ issue: Issue) {

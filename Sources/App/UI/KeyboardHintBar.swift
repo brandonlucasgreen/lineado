@@ -80,6 +80,15 @@ struct KeyboardHintBar: View {
     }
 
     private var hints: [KeyHint] {
+        // In the chip rows the issue verbs are all inert, so advertising them
+        // would be worse than showing nothing.
+        if app.filterFocus != .list {
+            return [
+                KeyHint("←", "→", app.filterFocus == .workspaces ? "workspace" : "team"),
+                KeyHint("↑", "↓", "move between rows"),
+                KeyHint("esc", "back to list"),
+            ]
+        }
         guard app.selectedIssue != nil else {
             // Nothing selected: the only useful keys are the ones that change
             // what the list shows.
@@ -112,6 +121,9 @@ struct KeyboardHintBar: View {
             KeyHint("B", "backlog"),
             KeyHint("⌘0", "window"),
         ])
+        if app.showsWorkspaceDimension {
+            result.append(KeyHint("↑", "filters"))
+        }
         return result
     }
 }

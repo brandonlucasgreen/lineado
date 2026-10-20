@@ -25,8 +25,6 @@ struct IssueRowView: View {
     /// already puts the status in the header above the row.
     let showsStatus: Bool
     let showsPriority: Bool
-    /// Set when more than one workspace is configured and none is filtered to.
-    var workspaceLabel: String?
 
     @Environment(AppState.self) private var app
 
@@ -117,16 +115,6 @@ struct IssueRowView: View {
                     .foregroundStyle(.quaternary)
                     .lineLimit(1)
             }
-
-            if let workspaceLabel {
-                Text(workspaceLabel)
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    .lineLimit(1)
-            }
         }
         // Everything here keeps its natural width. The title truncates instead.
         .fixedSize()
@@ -146,7 +134,6 @@ struct IssueRowView: View {
         }
         parts.append(issue.state.name)
         parts.append(issue.team.name)
-        if let workspaceLabel { parts.append("in \(workspaceLabel)") }
         return parts.joined(separator: ", ")
     }
 }

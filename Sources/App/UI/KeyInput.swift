@@ -106,7 +106,7 @@ enum PanelAction: Hashable, Sendable {
     case cycleGrouping
     case cycleSort
     case toggleBacklog
-    case cycleTeam(Int)
+    case cycleFilterChip(Int)
     case selectTeamIndex(Int)
     case focusSearch
     case showAllShortcuts
@@ -127,7 +127,8 @@ enum KeyMap {
     /// |---|---|---|
     /// | `↑` `↓` | move selection | |
     /// | `⌥↑` `⌥↓` | previous / next group | |
-    /// | `←` `→` | cycle team chip | |
+    /// | `←` `→` | cycle the focused chip row | |
+    /// | `↑` past the first row | step up into the chip rows | |
     /// | `⌘1`–`⌘9` | jump to team chip | |
     /// | `⏎` | open in Linear | |
     /// | `space` | expand / collapse detail | |
@@ -210,8 +211,10 @@ enum KeyMap {
 
         switch key {
         case .space: return .toggleDetail
-        case .left: return .cycleTeam(-1)
-        case .right: return .cycleTeam(1)
+        // Not "cycle team": which row this walks depends on which band has
+        // focus, and naming it after one of them would be a lie half the time.
+        case .left: return .cycleFilterChip(-1)
+        case .right: return .cycleFilterChip(1)
         case .character("?"): return .showAllShortcuts
         case .character(let c):
             switch Character(c.lowercased()) {

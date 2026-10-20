@@ -294,7 +294,18 @@ struct PanelView: View {
 
         switch action {
         case .moveSelection(let offset):
-            app.moveSelection(by: offset)
+            if app.filterFocus != .list {
+                // Inside the chip rows: ↓ steps back toward the list, ↑ climbs.
+                // At the very top, ↑ does nothing rather than wrapping — the
+                // chips are a header, and headers do not cycle.
+                app.moveFocus(offset)
+                if app.filterFocus == .list { app.selectFirstIfNeeded() }
+            } else if offset < 0, app.isSelectionAtTop {
+                // ↑ from the first row steps up into the chips.
+                app.moveFocus(-1)
+            } else {
+                app.moveSelection(by: offset)
+            }
         case .moveGroup(let offset):
             app.moveSelectionByGroup(offset)
         case .open:
@@ -329,8 +340,8 @@ struct PanelView: View {
             app.preferences.sortBy = SortBy.allCases.next(after: app.preferences.sortBy)
         case .toggleBacklog:
             app.preferences.showsBacklog.toggle()
-        case .cycleTeam(let offset):
-            cycleTeam(by: offset)
+        case .cycleFilterChip(let offset):
+            app.cycleFocusedFilter(by: offset)
         case .selectTeamIndex(let index):
             let chips = app.teamChips
             app.preferences.teamID = chips.indices.contains(index) ? chips[index].team.id : nil
@@ -347,6 +358,8 @@ struct PanelView: View {
             // convention, and the reason it never surprises.
             if activePicker != nil {
                 activePicker = nil
+            } else if app.filterFocus != .list {
+                app.filterFocus = .list
             } else if !app.searchText.isEmpty {
                 app.searchText = ""
             } else if app.expandedID != nil {
@@ -367,14 +380,6 @@ struct PanelView: View {
         }
     }
 
-    /// `←`/`→` walk "All" plus each team, wrapping at both ends.
-    private func cycleTeam(by offset: Int) {
-        let ids: [String?] = [nil] + app.teamChips.map { $0.team.id }
-        guard ids.count > 1 else { return }
-        let current = ids.firstIndex(of: app.preferences.teamID) ?? 0
-        let next = (current + offset + ids.count) % ids.count
-        app.preferences.teamID = ids[next]
-    }
 }
 
 extension Array where Element: Equatable {

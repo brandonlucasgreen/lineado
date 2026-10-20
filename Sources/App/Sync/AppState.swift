@@ -40,6 +40,21 @@ final class AppState {
 
     /// The selected issue's id. Selection is by id, not index, so a poll that
     /// reorders the list does not move the cursor out from under you.
+    /// Which band of the panel the arrow keys act on.
+    ///
+    /// The filter chips are two stacked rows above a list, and all three want
+    /// the arrow keys. Rather than give the chips their own shortcut, `↑` from
+    /// the first row steps up into them and `↓` steps back down — so one pair
+    /// of keys walks the whole panel top to bottom, which is what a Mac user
+    /// tries first.
+    enum FilterFocus: Equatable {
+        case workspaces
+        case teams
+        case list
+    }
+
+    var filterFocus: FilterFocus = .list
+
     var selectionID: String?
     var expandedID: String?
     var searchText: String = ""
@@ -205,6 +220,57 @@ final class AppState {
     func selectFirstIfNeeded() {
         guard selectionID == nil || !orderedIssues.contains(where: { $0.id == selectionID }) else { return }
         selectionID = orderedIssues.first?.id
+    }
+
+    /// The bands that currently exist, top to bottom. The workspace row is
+    /// absent with one workspace configured, so `↑` skips straight past it
+    /// rather than landing on an invisible band.
+    var focusBands: [FilterFocus] {
+        showsWorkspaceDimension ? [.workspaces, .teams, .list] : [.teams, .list]
+    }
+
+    /// Moves focus one band up or down. Returns false at either end, so the
+    /// caller can fall back to moving the selection.
+    @discardableResult
+    func moveFocus(_ offset: Int) -> Bool {
+        let bands = focusBands
+        guard let current = bands.firstIndex(of: filterFocus) else {
+            filterFocus = .list
+            return false
+        }
+        let next = current + offset
+        guard bands.indices.contains(next) else { return false }
+        filterFocus = bands[next]
+        return true
+    }
+
+    /// `←`/`→` act on whichever band has focus.
+    func cycleFocusedFilter(by offset: Int) {
+        switch filterFocus {
+        case .workspaces: cycleWorkspace(by: offset)
+        case .teams, .list: cycleTeam(by: offset)
+        }
+    }
+
+    func cycleTeam(by offset: Int) {
+        let ids: [String?] = [nil] + teamChips.map { $0.team.id }
+        guard ids.count > 1 else { return }
+        let current = ids.firstIndex(of: preferences.teamID) ?? 0
+        preferences.teamID = ids[(current + offset + ids.count) % ids.count]
+    }
+
+    func cycleWorkspace(by offset: Int) {
+        let ids: [String?] = [nil] + workspaceChips.map { $0.id }
+        guard ids.count > 1 else { return }
+        let current = ids.firstIndex(of: preferences.workspaceID) ?? 0
+        preferences.workspaceID = ids[(current + offset + ids.count) % ids.count]
+        // The team filter belonged to the workspace we just left.
+        preferences.teamID = nil
+    }
+
+    var isSelectionAtTop: Bool {
+        guard let selectionID, let first = orderedIssues.first else { return true }
+        return first.id == selectionID
     }
 
     func moveSelection(by offset: Int) {

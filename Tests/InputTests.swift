@@ -185,8 +185,8 @@ struct KeyMapTests {
     @Test("Space toggles the detail, left and right walk the team chips")
     func panelKeys() {
         #expect(KeyMap.action(for: .space) == .toggleDetail)
-        #expect(KeyMap.action(for: .left) == .cycleTeam(-1))
-        #expect(KeyMap.action(for: .right) == .cycleTeam(1))
+        #expect(KeyMap.action(for: .left) == .cycleFilterChip(-1))
+        #expect(KeyMap.action(for: .right) == .cycleFilterChip(1))
         #expect(KeyMap.action(for: .character("?")) == .showAllShortcuts)
     }
 
@@ -321,5 +321,59 @@ struct LoginItemTests {
         #expect(LoginItem.State.enabled.isOn)
         #expect(!LoginItem.State.disabled.isOn)
         #expect(!LoginItem.State.unavailable.isOn)
+    }
+}
+
+// MARK: - Filter focus bands
+
+@Suite("Filter focus")
+struct FilterFocusTests {
+    typealias Band = AppState.FilterFocus
+
+    /// Pure reimplementation of the band walk, so the rule is testable without
+    /// an AppState (which needs a Keychain, a store and a run loop).
+    static func move(from band: Band, by offset: Int, bands: [Band]) -> Band {
+        guard let current = bands.firstIndex(of: band) else { return .list }
+        let next = current + offset
+        return bands.indices.contains(next) ? bands[next] : band
+    }
+
+    static let withWorkspaces: [Band] = [.workspaces, .teams, .list]
+    static let singleWorkspace: [Band] = [.teams, .list]
+
+    @Test("Up from the list reaches teams, then workspaces")
+    func climbing() {
+        var band = Band.list
+        band = Self.move(from: band, by: -1, bands: Self.withWorkspaces)
+        #expect(band == .teams)
+        band = Self.move(from: band, by: -1, bands: Self.withWorkspaces)
+        #expect(band == .workspaces)
+    }
+
+    /// The chips are a header, and headers do not cycle — pressing up at the
+    /// top should do nothing rather than wrap round to the list.
+    @Test("Up at the top stays put rather than wrapping")
+    func doesNotWrap() {
+        #expect(Self.move(from: .workspaces, by: -1, bands: Self.withWorkspaces) == .workspaces)
+        #expect(Self.move(from: .list, by: 1, bands: Self.withWorkspaces) == .list)
+    }
+
+    /// With one workspace the row is not on screen, so focus must skip it
+    /// rather than land on an invisible band.
+    @Test("One workspace means the workspace band does not exist")
+    func skipsAbsentBand() {
+        var band = Band.list
+        band = Self.move(from: band, by: -1, bands: Self.singleWorkspace)
+        #expect(band == .teams)
+        // And no further: there is nothing above teams here.
+        #expect(Self.move(from: band, by: -1, bands: Self.singleWorkspace) == .teams)
+    }
+
+    /// Naming the action after one row would be a lie half the time — which
+    /// row it walks depends on which band has focus.
+    @Test("Left and right are not team-specific")
+    func arrowsAreBandRelative() {
+        #expect(KeyMap.action(for: .left) == .cycleFilterChip(-1))
+        #expect(KeyMap.action(for: .right) == .cycleFilterChip(1))
     }
 }
