@@ -32,9 +32,22 @@ struct PanelView: View {
             }
 
             Divider()
+            if app.isConfigured {
+                KeyboardHintBar()
+                Divider()
+            }
             FooterView()
         }
         .frame(width: 460, height: 560)
+        // An opaque background, not the MenuBarExtra default.
+        //
+        // The default is a thin material, and over a bright window the
+        // show-through put the desktop's own text behind these rows: readable
+        // in a screenshot, not readable in use. A menu bar panel is a reading
+        // surface before it is a decorative one, so it gets the window
+        // background colour — which still tracks light and dark, and still
+        // sits inside the system's rounded panel shape.
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .center) { pickerOverlay }
         .onAppear(perform: startKeyMonitor)
         .onDisappear(perform: stopKeyMonitor)

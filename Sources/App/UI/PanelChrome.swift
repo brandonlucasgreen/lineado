@@ -63,6 +63,7 @@ struct TeamChips: View {
 /// panel would quietly understate the work.
 struct FooterView: View {
     @Environment(AppState.self) private var app
+    @State private var showsAllShortcuts = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -88,12 +89,15 @@ struct FooterView: View {
             }
 
             Menu {
-                FooterMenuItems()
+                FooterMenuItems(showsAllShortcuts: $showsAllShortcuts)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .popover(isPresented: $showsAllShortcuts, arrowEdge: .top) {
+                AllShortcutsView()
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -117,6 +121,7 @@ struct FooterView: View {
 struct FooterMenuItems: View {
     @Environment(AppState.self) private var app
     @Environment(\.openSettings) private var openSettings
+    @Binding var showsAllShortcuts: Bool
 
     var body: some View {
         @Bindable var app = app
@@ -129,6 +134,7 @@ struct FooterMenuItems: View {
         }
 
         Divider()
+        Button("All Keyboard Shortcuts…") { showsAllShortcuts = true }
         Button("Settings…") { SettingsWindow.open(using: openSettings) }
         Button("Quit Lineado") { NSApp.terminate(nil) }
     }
@@ -312,40 +318,12 @@ enum PanelToggler {
         return nil
     }
 
-    /// Appends one line to `~/Library/Application Support/Lineado/
-    /// window-diagnostic.log`.
-    ///
-    /// **Temporary**, and here for one open question only: whether the global
-    /// hotkey's handler fires at all. Everything else about the hotkey has been
-    /// measured and works — the shortcut stores (⌃⌥L), the handler registers,
-    /// and `toggle()` opens the panel even with another app frontmost. Delete
-    /// this and its two callers once a real key press has been seen.
-    nonisolated static func diagnose(_ message: String) {
-        let text = "[\(Date())] \(message)\n"
-        let url = Storage.directory.appendingPathComponent("window-diagnostic.log")
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(Data(text.utf8))
-            try? handle.close()
-        } else {
-            try? text.write(to: url, atomically: true, encoding: .utf8)
-        }
-    }
-
     static func toggle() {
-        guard let button = statusItemButton else {
-            diagnose("toggle: NO BUTTON")
-            return
-        }
-        // The app has to be active before the click lands.
-        //
-        // A global hotkey fires while some *other* app is frontmost, and
-        // `performClick` on a background app's status item does nothing. That
-        // is why the hotkey appeared dead while clicking the icon worked: the
-        // click path is already active by definition, so the bug could only
-        // ever show up through the hotkey.
+        guard let button = statusItemButton else { return }
         NSApp.activate(ignoringOtherApps: true)
-        button.performClick(nil)
+        DispatchQueue.main.async {
+            button.performClick(nil)
+        }
     }
 
     static func close() {

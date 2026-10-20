@@ -94,7 +94,10 @@ struct SectionHeader: View {
         .fontWeight(.medium)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(.regularMaterial)
+        // Opaque, not material: these headers are pinned, so rows scroll
+        // underneath them and anything translucent shows the text sliding
+        // through.
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

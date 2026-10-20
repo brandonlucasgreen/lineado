@@ -11,12 +11,8 @@ struct LineadoApp: App {
 
     init() {
         KeyboardShortcuts.onKeyUp(for: .togglePanel) {
-            PanelToggler.diagnose("hotkey fired")
             PanelToggler.toggle()
         }
-        PanelToggler.diagnose(
-            "registered handler; stored shortcut = "
-            + String(describing: KeyboardShortcuts.getShortcut(for: .togglePanel)))
 
         // Temporary probe. NOT a `.task` on a view: the MenuBarExtra label
         // re-renders whenever the issue count changes, which cancels any task
@@ -83,10 +79,13 @@ extension KeyboardShortcuts.Name {
 /// it is already a template image: macOS tints it for the light or dark menu
 /// bar, it stays crisp at any scale factor, and it needs no asset catalogue.
 ///
-/// Solid when something is waiting, hollow when the queue is empty — the same
-/// read I&C's glyphs carry. The count sits beside it, and goes red-tinted via
-/// the filled exclamation variant when something is actually late, so the icon
-/// answers "is anything overdue?" without opening the panel.
+/// **Solid when something is waiting, hollow only at zero** — exactly the read
+/// Inbox & Chill's glyphs carry, and the reason the two apps look like a pair.
+///
+/// An earlier version filled the hand only when something was *overdue*, which
+/// left it hollow in the normal case of "you have 53 tasks, none late" — the
+/// opposite of what the glyph should say. Overdue is not the question the icon
+/// answers; "is there anything?" is.
 struct MenuBarLabel: View {
     let count: Int
     let overdue: Int
@@ -96,7 +95,7 @@ struct MenuBarLabel: View {
             Image(systemName: "hand.point.right")
                 .accessibilityLabel("Lineado: nothing assigned")
         } else {
-            Image(systemName: overdue > 0 ? "hand.point.right.fill" : "hand.point.right")
+            Image(systemName: "hand.point.right.fill")
                 .accessibilityLabel(
                     overdue > 0
                         ? "Lineado: \(count) tasks, \(overdue) overdue"
