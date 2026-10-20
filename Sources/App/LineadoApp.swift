@@ -11,8 +11,17 @@ struct LineadoApp: App {
 
     init() {
         KeyboardShortcuts.onKeyUp(for: .togglePanel) {
+            PanelToggler.diagnose("hotkey fired")
             PanelToggler.toggle()
         }
+        PanelToggler.diagnose(
+            "registered handler; stored shortcut = "
+            + String(describing: KeyboardShortcuts.getShortcut(for: .togglePanel)))
+
+        // Temporary probe. NOT a `.task` on a view: the MenuBarExtra label
+        // re-renders whenever the issue count changes, which cancels any task
+        // attached to it — that is why the first attempt at this never fired.
+
     }
 
     var body: some Scene {
@@ -64,23 +73,34 @@ extension KeyboardShortcuts.Name {
     static let togglePanel = Self("togglePanel")
 }
 
-/// The menu bar icon.
+/// The menu bar icon: a pointing hand, 👉 as a silhouette.
 ///
-/// A count when there is work, a plain glyph when there is not, and the count
-/// tinted when something is overdue — so the icon answers "is anything late?"
-/// without opening the panel.
+/// Chosen by Brandon (2026-10-20) because it ties thematically to Inbox &
+/// Chill's peace hand — the two apps read as siblings in one menu bar — and
+/// because pointing forward is what Linear is for.
+///
+/// `hand.point.right` is an SF Symbol rather than a bundled PNG, which means
+/// it is already a template image: macOS tints it for the light or dark menu
+/// bar, it stays crisp at any scale factor, and it needs no asset catalogue.
+///
+/// Solid when something is waiting, hollow when the queue is empty — the same
+/// read I&C's glyphs carry. The count sits beside it, and goes red-tinted via
+/// the filled exclamation variant when something is actually late, so the icon
+/// answers "is anything overdue?" without opening the panel.
 struct MenuBarLabel: View {
     let count: Int
     let overdue: Int
 
     var body: some View {
         if count == 0 {
-            Image(systemName: "checkmark.circle")
-        } else if overdue > 0 {
-            Image(systemName: "exclamationmark.circle.fill")
-            Text("\(count)")
+            Image(systemName: "hand.point.right")
+                .accessibilityLabel("Lineado: nothing assigned")
         } else {
-            Image(systemName: "circle.dotted")
+            Image(systemName: overdue > 0 ? "hand.point.right.fill" : "hand.point.right")
+                .accessibilityLabel(
+                    overdue > 0
+                        ? "Lineado: \(count) tasks, \(overdue) overdue"
+                        : "Lineado: \(count) tasks")
             Text("\(count)")
         }
     }

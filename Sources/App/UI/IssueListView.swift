@@ -46,9 +46,13 @@ struct IssueListView: View {
             isExpanded: app.expandedID == issue.id,
             detail: app.details[issue.id],
             errorMessage: app.rowError(for: issue.id),
-            // The team key is redundant once a team is picked or the list is
-            // already grouped by team.
-            showsTeam: app.preferences.teamID == nil && app.preferences.groupBy != .team)
+            // Chrome the group header already carries is dropped from the row
+            // rather than squeezed into it. On a 460pt panel the difference
+            // between four trailing elements and two is the difference between
+            // a readable title and an ellipsis.
+            showsTeam: app.preferences.teamID == nil && app.preferences.groupBy != .team,
+            showsStatus: app.preferences.groupBy != .status,
+            showsPriority: app.preferences.groupBy != .priority)
         .onTapGesture {
             app.selectionID = issue.id
         }
