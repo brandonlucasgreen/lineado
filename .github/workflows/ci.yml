@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap checks on Linux. They catch most script mistakes and cost nothing
+  # next to a macOS runner.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Check scripts
+        run: scripts/check-shell.sh
+
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      # CI never signs for real: no Developer ID certificate, no notary
+      # credentials and no Sparkle private key reach a runner. So a green run
+      # does NOT tell you a build is notarizable — only
+      # scripts/notarize.sh --preflight-only on a Mac can.
+      - name: Build and test
+        run: |
+          xcodebuild -project Lineado.xcodeproj \
+            -scheme Lineado -configuration Debug \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            test | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Audit the built bundle
+        run: |
+          APP="$(find ~/Library/Developer/Xcode/DerivedData -name 'Lineado.app' -type d | head -1)"
+          [ -n "$APP" ] && scripts/verify-bundle.sh "$APP" || echo "no app built to audit"

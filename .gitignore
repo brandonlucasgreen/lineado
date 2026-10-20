@@ -13,3 +13,6 @@ Lineado-Info.plist
 
 # Sparkle command-line tools, fetched by scripts/sparkle-tools.sh
 .sparkle/
+
+# Local release builds
+build/

@@ -1,0 +1,107 @@
+name: Lineado
+options:
+  bundleIdPrefix: lol.bgreen
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
+  # In-app updates. Sparkle ships as a binary XCFramework, so SPM embeds it and
+  # Xcode re-signs it with our Developer ID. That re-signing is the one part
+  # notarization cares about and the one part no build failure reveals —
+  # scripts/notarize.sh preflights it. (Inbox & Chill, CLAUDE.md §Sparkle.)
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.9.6
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Real Developer ID signing, not ad-hoc ("-"), even for local builds.
+    # macOS keys Keychain ACLs and TCC decisions to the code signature: an
+    # ad-hoc signature has no stable identity, so every rebuild looks like a
+    # brand-new app and re-prompts for all of them.
+    #
+    # Building this yourself? Change DEVELOPMENT_TEAM to your own Team ID, or
+    # pass CODE_SIGN_IDENTITY="-" to xcodebuild for an unsigned build.
+    DEVELOPMENT_TEAM: CV926C8KS8
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Developer ID Application"
+
+targets:
+  Lineado:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/App
+    dependencies:
+      - package: KeyboardShortcuts
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: lol.bgreen.lineado
+        PRODUCT_NAME: Lineado
+        INFOPLIST_FILE: Lineado-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Lineado.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Lineado-Info.plist
+      properties:
+        CFBundleName: Lineado
+        CFBundleDisplayName: Lineado
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleIconName: AppIcon
+        # Menu bar app: no Dock icon, no ⌘Tab entry. The ⌘0 window flips this
+        # to .regular while it is open (see LineadoApp.swift).
+        LSUIElement: true
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "MIT licensed. © 2026 Brandon Green."
+        NSSupportsAutomaticTermination: false
+        NSSupportsSuddenTermination: false
+        # ---------------------------------------------------------------
+        # Sparkle. These three keys are set HERE and not via
+        # INFOPLIST_KEY_<name> build settings, because Xcode only synthesises
+        # INFOPLIST_KEY_* for keys it already knows and SUFeedURL is not one
+        # of them. Inbox & Chill shipped a bundle with no feed URL that way,
+        # and nothing warned. scripts/verify-bundle.sh asserts all three.
+        #
+        # SUFeedURL is load-bearing and effectively permanent: changing it
+        # after the first public release strands every existing install.
+        # ---------------------------------------------------------------
+        SUFeedURL: https://brandonlucasgreen.github.io/lineado/appcast.xml
+        SUEnableInstallerLauncherService: false
+        SUPublicEDKey: "" # filled by scripts/sparkle-keys.sh, one time
+
+  LineadoTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Lineado
+    settings:
+      base:
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Lineado:
+    build:
+      targets:
+        Lineado: all
+        LineadoTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - LineadoTests

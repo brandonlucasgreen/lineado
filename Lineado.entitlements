@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed: the direct Developer ID build, like Inbox & Chill's.
+	     Outgoing network is all this app needs; it reads no user files. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

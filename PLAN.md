@@ -178,45 +178,49 @@ One document, one request:
 
 ```graphql
 query AssignedIssues($after: String) {
-  issues(
-    first: 100
-    after: $after
-    filter: {
-      assignee: { isMe: { eq: true } }
-      state: { type: { nin: ["completed", "canceled"] } }
-    }
-    orderBy: updatedAt
-  ) {
-    pageInfo { hasNextPage endCursor }
-    nodes {
-      id identifier title url branchName updatedAt createdAt
-      priority priorityLabel dueDate
-      state  { id name type color position }
-      team   { id key name }
-      project { id name }
-      projectMilestone { id name targetDate }
-      labels { nodes { id name color } }
-      parent { id identifier title }
+  viewer {
+    id
+    assignedIssues(
+      first: 100
+      after: $after
+      filter: { state: { type: { nin: ["completed", "canceled", "duplicate"] } } }
+      orderBy: updatedAt
+    ) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id identifier title url branchName updatedAt createdAt
+        priority priorityLabel dueDate
+        state  { id name type color position }
+        team   { id key name }
+        project { id name }
+        projectMilestone { id name targetDate }
+        labels { nodes { id name color } }
+        parent { id identifier title }
+      }
     }
   }
 }
 ```
 
-Three things to **verify against the live API in Phase 1** rather than assume:
+Two of the three original unknowns are now **resolved** (2026-10-20):
 
-1. **That the `state.type` enum is the six values Linear documents** — `triage`,
-   `backlog`, `unstarted`, `started`, `completed`, `canceled`. The Linear MCP
-   reports a `duplicate` status type for the "Duplicate" state on Core UX, which
-   is either a seventh type or an MCP-level convenience. If it is real, it joins
-   the `nin` list; if it is not, "Duplicate" is a `canceled`-type state and is
-   already excluded. Do not guess — introspect.
-2. **That the query's complexity fits the budget.** Linear rate-limits by query
-   complexity, not just request count, and 100 nodes with two nested connections
-   is not free. If it is too heavy, drop `labels` from the list query and fetch
-   them with the detail.
-3. **`assignee: { isMe: { eq: true } }`** — confirm the filter shape. The
-   alternative is `viewer { assignedIssues(...) }`, which is simpler but gives
-   less control over filtering and paging.
+1. **`duplicate` is a real `WorkflowState.type`**, distinct from `canceled`.
+   Verified against the live workspace: Core UX has a "Duplicate" state typed
+   `duplicate`. So Linear has **seven** state types — `triage`, `backlog`,
+   `unstarted`, `started`, `completed`, `canceled`, `duplicate` — and all three
+   terminal ones must be in the `nin` list. Assuming six would have left
+   duplicates on the list forever.
+2. **`assignee: { isMe: ... }` is not documented**, so the query does not use it.
+   `viewer { assignedIssues(filter:) }` is documented, takes the same
+   `IssueFilter`, pages the same way, and removes the need to resolve and cache a
+   viewer id first. `state: { type: { nin: [...] } }` *is* confirmed — `type` is a
+   `StringComparator` and `nin` is one of its comparators.
+
+Still open, and Phase 1's job to measure:
+
+3. **Query complexity, not request count, is Linear's real limit.** 100 nodes
+   with two nested connections is not free. If it is too heavy, drop `labels`
+   from the list query and fetch them with the detail.
 
 Issue **detail** is a second, on-demand query, fired when a row expands and cached
 until the next poll touches that issue:
@@ -278,7 +282,7 @@ different act and the app will not do it behind a familiar shortcut.
 
 ### 5.1 Sort
 
-Priority · Due date · Created · Updated, each reversible.
+Priority · Due date · Created · Updated · Team, each reversible.
 
 **The priority trap:** Linear's scale is `0 = No priority, 1 = Urgent, 2 = High,
 3 = Medium, 4 = Low`. Sorting on the raw integer puts "No priority" *first*, which
@@ -297,18 +301,23 @@ None · Priority · Status · Project · Milestone · Team.
 Grouping and sorting compose: buckets are ordered by the group's own natural
 order, and the sort applies within each bucket.
 
-**Status grouping across teams is the one genuinely hard ordering problem.** You
-are assigned across seven teams, status names differ between them, and `position`
-is only meaningful *within* a team — so there is no single number to sort by. The
-rule, in order:
+**Status grouping does not fold same-named states across teams.** Each distinct
+workflow state gets its own bucket, keyed by its state id. "To Do" on Core UX and
+"Todo" on EPD are different statuses and group separately — which is the honest
+reading, since they are genuinely different records that each team configured.
+Folding by name was considered and cut: it needed a cross-team ordering rule with
+no correct answer, and it would have quietly merged states whose meanings diverge.
+
+Bucket order is deterministic:
 
 1. By state `type`, in Linear's own lifecycle order: `triage`, `backlog`,
    `unstarted`, `started`.
-2. Then by the lowest `position` among the teams that use that name.
-3. Then alphabetically, so the order is deterministic.
+2. Then by `position` within the team.
+3. Then by team key, then by name — so two teams' states never tie.
 
-States with the same name across teams fold into one bucket. "To Do" on Core UX
-and "To Do" on EPD are the same bucket; the row still shows its team.
+When the same name appears in more than one visible bucket, the header
+disambiguates (`To Do · CORE`, `To Do · EPD`); when it is unique, the header is
+just the name. With the team filter set to one team, that suffix never appears.
 
 **Milestone grouping** reads `Project › Milestone`, because a milestone name
 ("QA & Bugs", "Planning", "GA") is meaningless without its project — you have a
@@ -325,19 +334,20 @@ The default list is **everything assigned to you that is not completed or
 canceled**, minus one band: states of type `backlog`, which are hidden by default
 and shown with `B` or the View menu. The choice persists.
 
-**The wrinkle worth knowing before you use it:** "Blocked" on Core UX is a
-`backlog`-type state. So hiding Backlog also hides Blocked, including the two QA
-tickets that are blocked on someone else and arguably still active. That follows
-Linear's own semantics and it may still feel wrong in daily use. If it does, the
-fix is a per-state override in Settings rather than special-casing a name — but do
-not build that until a week of real use says it is needed.
+"Blocked" on Core UX is a `backlog`-type state, so hiding Backlog also hides
+Blocked. That is intended (Brandon, 2026-10-20): both are "not what I am doing
+now", and one toggle for the pair is simpler than a per-state override.
 
-A **team filter** runs along the top as chips (`⌘1`…`⌘9`, `←`/`→` to cycle), like
-I&C's source chips. With seven teams and most work in Core UX, this is how you get
-to a one-team view in a keystroke.
+A **team filter** runs along the top as chips — "All" plus one per team, with
+counts — exactly like I&C's source chips: `←`/`→` cycles, `⌘1`…`⌘9` jumps, and
+the choice persists. Team is the direct analogue of source here, and with seven
+teams and most work in Core UX it is how you get to a one-team view in a
+keystroke.
 
-**Type-to-filter** narrows the visible list by identifier, title, project and
-label. `⌘F` focuses it explicitly; `Esc` clears.
+**Type-to-filter** narrows the visible list by identifier, title, project,
+milestone, status and label. `⌘F` focuses it explicitly; `Esc` clears. It composes
+with the team chip and the Backlog toggle rather than overriding them, and the
+footer always reports what is hidden and why.
 
 ## 6. UX and the command model
 
@@ -529,9 +539,6 @@ Shortcuts, a second Linear workspace, sub-issue trees, and cycle awareness.
 - **Query complexity, not request count, is the real Linear limit.** Phase 1 must
   measure it rather than assume the §4.5 query fits. The fallback is moving
   `labels` out of the list query.
-- **The `duplicate` state type** may or may not exist (§4.5). Introspect.
-- **Hiding Backlog also hides Blocked** (§5.3). A week of real use decides whether
-  that needs a per-state override.
 - **One API key is one workspace.** v1 is single-workspace; a personal Linear
   account alongside the Buffer one would need a second credential and a source
   concept, which is most of the complexity §2 was cutting.
