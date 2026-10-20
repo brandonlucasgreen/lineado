@@ -40,7 +40,7 @@ scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
 Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 58 of them, all
 over pure functions — there is no UI test and no network test.
 
-## Ten things this codebase already learned
+## Eleven things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -128,20 +128,75 @@ group header already carries: grouping by status drops the pill, grouping by
 priority drops the icon. On a 460pt panel that is the difference between a
 readable title and an ellipsis.
 
-### 8. A `.task` on the `MenuBarExtra` label is cancelled on every re-render
+### 8. `MenuBarExtra` cannot be opened from code — so the app does not use it
 
-`.task` is tied to view identity, and the label displays the issue count — so
-it re-renders whenever the count changes, cancelling the task each time. A
-4-second probe in there never fired once.
+A global hotkey cannot open a SwiftUI `MenuBarExtra` panel on this macOS. Four
+measurements, after two wrong theories (one of them blamed Control-click
+modifiers; it was wrong):
 
-`app.start()` survives only because it is fire-and-forget: it stores its own
-`Task` and guards re-entry, so killing the launcher does not kill the loop.
-Anything that must run to completion belongs outside the view.
+- The handler **fires** — ten traced presses, ten firings.
+- The `NSStatusBarButton` **is** found, and it is the right one: of the eleven
+  `NSStatusBarWindow`s the system creates, exactly one is on screen and carries
+  our title; the other ten are empty placeholders at y=-39.
+- That button has **`target == nil` and `action == nil`**, so `performClick`
+  has nothing to dispatch.
+- Synthesising a mouse event with `sendEvent` **hangs the app**: a status
+  item's mouse-down enters a modal tracking run loop waiting for the matching
+  mouse-up, so delivering the down synchronously blocks the main thread inside
+  that loop (confirmed with `sample`). Posting both to the queue avoids the
+  hang and still does not open the panel.
 
-The loop is on the label rather than in `PanelView` for the related reason that
-`MenuBarExtra(.window)` builds its **content** lazily — on first click — and
-tears it down on close, so a loop owned by the panel runs only while the panel
-is open, which is exactly when the count does not need to be live.
+So `MenuBarController` owns the `NSStatusItem` and an `NSPanel` directly.
+
+**Do not "measure" the panel by counting `NSStatusBarWindow`s.** They persist
+once built, so the count is high whether the panel is shown or hidden — a bad
+metric that made a failure look like a success here for one whole round.
+
+A related SwiftUI fact, no longer load-bearing but worth keeping: a `.task` on
+a `MenuBarExtra` label is cancelled on every re-render, because the label
+displays the very count it depends on. The icon is now kept current by
+`withObservationTracking`, which no view lifecycle can cancel.
+
+### 9. A menu bar app quits when its last window closes
+
+AppKit terminates the process when the last visible window is ordered out. For
+a menu bar app, having no window on screen is the normal resting state — so
+dismissing the panel with `Esc` quit the whole app, and left **no crash report,
+because nothing crashed**.
+
+`AppDelegate.applicationShouldTerminateAfterLastWindowClosed` returns `false`.
+
+Two traps found beside it:
+
+- `NSApp.hide(nil)` is the wrong way to return focus. `MenuBarController`
+  remembers `NSWorkspace.shared.frontmostApplication` when the panel opens and
+  reactivates that app. Note hide was **not** the cause of the termination —
+  removing it alone fixed nothing, which a probe showed before the real cause
+  was found.
+- **`statusItem.menu = menu` then `button.performClick(nil)` is infinitely
+  recursive.** `performClick` re-invokes the button's action synchronously,
+  landing back in the click handler where `NSApp.currentEvent` is still the
+  same right-mouse-up. Right-clicking the icon would have blown the stack. Use
+  `menu.popUp(positioning:at:in:)`.
+
+### 10. SwiftUI will not render a Markdown heading from `AttributedString`
+
+Both parsing modes fail, differently. `.inlineOnlyPreservingWhitespace`
+ignores block syntax, so `### Heading` renders as literal hashes. `.full`
+parses blocks into `presentationIntent` runs that `Text` declines to style, so
+the hashes vanish and the line looks like every other line — worse.
+
+`UI/MarkdownText.swift` parses blocks line by line and renders each as its own
+styled view, keeping `AttributedString` for inline syntax only. `MarkdownTests`
+covers the grammar, including the two traps: the space after `#` is required so
+`#hashtag` stays text, and a code fence swallows its contents so `# comment`
+inside a shell snippet is not a heading.
+
+### 11. The test target aliases `Issue`, which shadows Swift Testing's
+
+`Tests/OrderingTests.swift` declares `typealias Issue = Lineado.Issue` so tests
+can say `Issue` and mean the app's type. That shadows `Testing.Issue`, so
+recording a failure manually needs the full name: `Testing.Issue.record(...)`.
 
 ## Architecture
 
@@ -161,7 +216,13 @@ is open, which is exactly when the count does not need to be live.
   `nonisolated static` pure functions. This is where the tests live.
 - `UI/KeyInput.swift` — `KeyMap.action(for:modifiers:isSearching:)` is the one
   place that decides what a key does. The panel and the menu bar both ask it, so
-  they cannot drift apart.
+  they cannot drift apart. The whole map is documented in a table on `KeyMap`,
+  and a test fails if two bindings produce the same action.
+- `UI/MenuBarController.swift` — owns the `NSStatusItem` and the `NSPanel`.
+  There is no `MenuBarExtra` scene; see trap 8.
+- `Support/LoginItem.swift` — Open at Login via `SMAppService`. Three states,
+  not two: registration can succeed while macOS parks the item awaiting the
+  user's approval.
 
 ### The optimistic-update guard
 
@@ -191,39 +252,13 @@ planning. Four writes only: status, priority, due date, comment.
 executable form. If a feature request needs it relaxed, that is a `PLAN.md`
 conversation first.
 
-### 9. SwiftUI will not render a Markdown heading from `AttributedString`
-
-Both parsing modes fail, differently. `.inlineOnlyPreservingWhitespace`
-ignores block syntax, so `### Heading` renders as literal hashes. `.full`
-parses blocks into `presentationIntent` runs that `Text` declines to style, so
-the hashes vanish and the line looks like every other line — worse.
-
-`UI/MarkdownText.swift` parses blocks line by line and renders each as its own
-styled view, keeping `AttributedString` for inline syntax only. `MarkdownTests`
-covers the grammar, including the two traps: the space after `#` is required so
-`#hashtag` stays text, and a code fence swallows its contents so `# comment`
-inside a shell snippet is not a heading.
-
-### 10. The test target aliases `Issue`, which shadows Swift Testing's
-
-`Tests/OrderingTests.swift` declares `typealias Issue = Lineado.Issue` so tests
-can say `Issue` and mean the app's type. That shadows `Testing.Issue`, so
-recording a failure manually needs the full name: `Testing.Issue.record(...)`.
-
-## Two macOS facts that shaped the app
+## One more macOS fact that shaped the app
 
 - **An `LSUIElement` app is never "active"**, so a window it opens is ordered
   into a layer behind whatever the user was looking at. `SettingsWindow.open`
   closes the panel, activates the app, and orders the window front — on the
   *next* runloop turn, because the window does not exist until `openSettings()`
   returns.
-- **A global hotkey's modifiers are still held when its handler runs.**
-  `NSStatusBarButton.performClick` reads the live modifier state, and a
-  Control-click is a secondary click — so a ⌃-based shortcut synthesises what
-  AppKit treats as a right-click. `PanelToggler.toggle` invokes the button's
-  `target`/`action` instead, which does not read modifiers; it also defers one
-  runloop turn, because a click issued synchronously inside the Carbon event
-  dispatch is swallowed outright.
 - **Keychain ACLs are keyed to the code signature, not the bundle id.** An
   ad-hoc-signed debug build reading a key the Developer ID build saved prompts
   the user for their login keychain password. Build Release with the real
@@ -246,21 +281,9 @@ Linear MCP; the mutations have never executed. Before trusting any write path:
 
 Say plainly in any PR which of these you did and which you did not.
 
-### The global hotkey, through two fixes
+### What has and has not run against a live key
 
-⌃⌥L still did not work after the first fix. What is established:
-
-- The handler **fires** — ten traced presses, ten firings. Registration and
-  shortcut storage were never the problem.
-- A `performClick` issued synchronously inside the Carbon event dispatch is
-  swallowed. Deferring one runloop turn is necessary but was not sufficient.
-- The current fix invokes the button's `target`/`action`, on the theory that
-  `performClick` was arriving as a Control-click (see the macOS facts above).
-
-**If it still fails, the next datum is whether a shortcut without Control
-works** — that confirms or kills the modifier theory in one press.
-
-`PanelDiagnostic` writes to `~/Library/Application Support/Lineado/hotkey.log`,
-recording the modifier state at fire time and whether the panel opened.
-**Delete it and its three call sites once a real press is confirmed to work** —
-it is scaffolding, not a feature.
+The read path has: Brandon's real workspace loads, with the right issues and
+counts. **The four writes still have not been exercised** — status, priority,
+due date and comment have never executed against Linear. Clearing a due date is
+the one to try first, since it is the case `JSONValue` exists for.
