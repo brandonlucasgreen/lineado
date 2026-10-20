@@ -162,36 +162,49 @@ final class MenuBarController: NSObject {
     }
 
     private func makePanel() -> NSPanel {
+        // **Borderless, not `.titled`.** A titled panel reserves its title bar
+        // height even with `.fullSizeContentView` and a hidden, transparent
+        // title bar — which showed up as a band of dead space above the filter
+        // field. Removing the style mask removes the reservation structurally,
+        // rather than trying to inset around it.
+        //
+        // The cost is that the window no longer draws its own background,
+        // corners or border, so the SwiftUI root does all three. And a
+        // borderless window refuses key status by default, which is why
+        // `KeyablePanel` overrides `canBecomeKey` — without it the filter
+        // field and the comment composer could not take a keystroke.
         let panel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false)
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.level = .popUpMenu
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
-        panel.backgroundColor = .windowBackgroundColor
-        panel.hasShadow = true
         // Follows the active Space rather than yanking you to another one.
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
 
+        let shape = RoundedRectangle(cornerRadius: 11, style: .continuous)
         let root = PanelView()
             .environment(appState)
             .environment(updates)
             .environment(\.menuBarController, self)
-            .frame(width: 460, height: 560)
+            .frame(width: Self.panelSize.width, height: Self.panelSize.height)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.12)))
 
         let hosting = NSHostingView(rootView: root)
-        hosting.frame = panel.contentLayoutRect
+        hosting.autoresizingMask = [.width, .height]
         panel.contentView = hosting
         return panel
     }
+
+    static let panelSize = CGSize(width: 460, height: 560)
 
     /// Places the panel under the menu bar icon, nudged inside the screen if
     /// the icon sits near the right edge.
