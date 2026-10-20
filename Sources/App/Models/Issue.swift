@@ -8,7 +8,15 @@ import Foundation
 /// poll can replace this struct wholesale without losing it.
 struct Issue: Identifiable, Sendable, Hashable, Codable {
     /// Linear's UUID. The identity used for mutations, local state and caching.
+    ///
+    /// Unique across workspaces too: Linear ids are UUIDs, so two workspaces
+    /// cannot collide here. The *human* identifier can — `CORE-123` may exist
+    /// in two workspaces — which is why rows disambiguate by workspace rather
+    /// than by id.
     let id: String
+    /// Which configured workspace this came from. Routes every mutation back
+    /// to the credential that can perform it.
+    var workspaceID: String = ""
     /// The human-facing short code, `CORE-1234`.
     let identifier: String
     var title: String
@@ -52,7 +60,7 @@ struct Issue: Identifiable, Sendable, Hashable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, identifier, title, url, branchName, priority, priorityLabel
+        case id, workspaceID, identifier, title, url, branchName, priority, priorityLabel
         case dueDate, createdAt, updatedAt, state, team, project, milestone
         case labels, parent
     }

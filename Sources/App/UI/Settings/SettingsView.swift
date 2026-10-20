@@ -7,7 +7,7 @@ struct SettingsView: View {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
             AccountSettings()
-                .tabItem { Label("Linear", systemImage: "square.stack.3d.up") }
+                .tabItem { Label("Workspaces", systemImage: "square.stack.3d.up") }
             UpdateSettings()
                 .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
         }
@@ -17,61 +17,120 @@ struct SettingsView: View {
 
 struct AccountSettings: View {
     @Environment(AppState.self) private var app
-    @State private var key: String = ""
-    @State private var saved = false
+    @State private var newKey = ""
+    @State private var isAdding = false
 
     var body: some View {
+        @Bindable var app = app
+
         Form {
-            Section {
-                // A SecureField, and the value is never echoed back from the
-                // Keychain into the UI — the field starts empty on every visit
-                // and an empty save is a no-op, so "I didn't retype it" cannot
-                // silently clear a working key.
-                SecureField("Personal API key", text: $key)
-                    .onSubmit(save)
-                HStack {
-                    Button("Save", action: save)
-                        .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
-                    if Keychain.hasAPIKey() {
-                        Button("Remove", role: .destructive) {
-                            Keychain.set(nil, for: Keychain.apiKeyAccount)
-                            key = ""
-                            saved = false
-                        }
-                    }
-                    Spacer()
-                    if saved {
-                        Label("Saved", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-                    } else if Keychain.hasAPIKey() {
-                        Label("A key is stored", systemImage: "key.fill")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                }
-            } header: {
-                Text("Linear")
-            } footer: {
-                Text("Linear → Settings → Security & access → Personal API keys. Stored in your login keychain, never in a file.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            ForEach(app.workspaces.workspaces) { workspace in
+                WorkspaceRow(workspace: workspace)
             }
 
-            if !app.viewerName.isEmpty {
-                LabeledContent("Signed in as", value: app.viewerName)
+            Section {
+                if isAdding {
+                    SecureField("Paste a personal API key", text: $newKey)
+                        .onSubmit(addWorkspace)
+                    HStack {
+                        Button("Add", action: addWorkspace)
+                            .disabled(newKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Button("Cancel") { isAdding = false; newKey = "" }
+                        Spacer()
+                    }
+                } else {
+                    Button("Add Workspace…") { isAdding = true }
+                }
+            } header: {
+                Text(app.workspaces.workspaces.isEmpty ? "Linear" : "Another workspace")
+            } footer: {
+                Text("Linear → Settings → Security & access → Personal API keys. One key per workspace; each is stored in your login keychain, never in a file. Lineado names the workspace from whatever Linear reports on the first sync.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .padding(.vertical, 8)
     }
 
-    private func save() {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        Keychain.set(trimmed, for: Keychain.apiKeyAccount)
-        key = ""
-        saved = true
+    private func addWorkspace() {
+        let key = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        // Named provisionally; the first successful poll replaces this with
+        // the organization's real name.
+        app.workspaces.add(name: "New workspace", apiKey: key)
+        newKey = ""
+        isAdding = false
+        Task { await app.refresh() }
+    }
+}
+
+/// One configured workspace: its name, its state, and the two things you can
+/// do to it.
+struct WorkspaceRow: View {
+    let workspace: Workspace
+    @Environment(AppState.self) private var app
+    @State private var replacementKey = ""
+    @State private var isReplacing = false
+
+    var body: some View {
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workspace.name).fontWeight(.medium)
+                    if let error = app.workspaceErrors[workspace.id] {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    } else if app.workspaces.hasKey(for: workspace.id) {
+                        Label("Connected", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("No key").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { workspace.isEnabled },
+                    set: {
+                        app.workspaces.setEnabled($0, for: workspace.id)
+                        Task { await app.refresh() }
+                    }))
+                    .labelsHidden()
+                    .help("Include this workspace")
+            }
+
+            if isReplacing {
+                SecureField("New API key", text: $replacementKey)
+                    .onSubmit(replaceKey)
+                HStack {
+                    Button("Save", action: replaceKey)
+                        .disabled(replacementKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Cancel") { isReplacing = false; replacementKey = "" }
+                    Spacer()
+                }
+            } else {
+                HStack {
+                    Button("Replace Key…") { isReplacing = true }
+                    Spacer()
+                    Button("Remove", role: .destructive) {
+                        app.workspaces.remove(id: workspace.id)
+                        Task { await app.refresh() }
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func replaceKey() {
+        let key = replacementKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        app.workspaces.setKey(key, for: workspace.id)
+        replacementKey = ""
+        isReplacing = false
         Task { await app.refresh() }
     }
 }

@@ -21,6 +21,10 @@ final class AppState {
     var details: [String: IssueDetail] = [:]
     var rowErrors: [String: String] = [:]
     private(set) var statesByTeam: [String: [WorkflowState]] = [:]
+    /// Which workspaces have had their states fetched. Team ids are UUIDs and
+    /// so unique across workspaces, which is why one flat `statesByTeam` is
+    /// safe — but "have I fetched this workspace yet" still needs its own set.
+    private var statesWorkspaces: Set<String> = []
     private(set) var viewerName: String = ""
     private(set) var lastSyncedAt: Date?
 
@@ -48,14 +52,18 @@ final class AppState {
 
     // MARK: Collaborators
 
-    let linearService: LinearService
+    let workspaces: WorkspaceStore
+    /// One service per workspace, built lazily and cached by workspace id.
+    private var services: [String: LinearService] = [:]
+    /// Per-workspace failures, so one revoked key cannot blank the whole list.
+    private(set) var workspaceErrors: [String: String] = [:]
     private var undoStack: [UndoableChange] = []
     private var isRecordingUndo = true
     private var syncTask: Task<Void, Never>?
     private var detailTasks: Set<String> = []
 
-    init(service: LinearService = LinearService()) {
-        self.linearService = service
+    init(workspaces: WorkspaceStore = WorkspaceStore()) {
+        self.workspaces = workspaces
         if let cached = IssueCache.load() {
             issues = cached.issues
             lastSyncedAt = cached.savedAt
@@ -66,6 +74,7 @@ final class AppState {
 
     var criteria: FilterCriteria {
         FilterCriteria(
+            workspaceID: preferences.workspaceID,
             teamID: preferences.teamID,
             showsBacklog: preferences.showsBacklog,
             searchText: searchText)
@@ -74,13 +83,27 @@ final class AppState {
     /// Chips are built from the list *before* the team filter runs — otherwise
     /// picking one chip would hide every other chip.
     var teamChips: [(team: Issue.Team, count: Int)] {
+        // Honours the workspace filter but not the team one: picking a team
+        // must not hide the other teams, while picking a workspace *should*
+        // narrow which teams are offered — they belong to different accounts.
         let base = Ordering.filter(
             issues,
-            criteria: FilterCriteria(teamID: nil,
+            criteria: FilterCriteria(workspaceID: preferences.workspaceID,
+                                     teamID: nil,
                                      showsBacklog: preferences.showsBacklog,
                                      searchText: searchText),
             hiddenUntil: localState.hiddenUntil).visible
         return Ordering.teamChips(for: base)
+    }
+
+    var workspaceChips: [(id: String, name: String, count: Int)] {
+        let base = Ordering.filter(
+            issues,
+            criteria: FilterCriteria(workspaceID: nil, teamID: nil,
+                                     showsBacklog: preferences.showsBacklog,
+                                     searchText: searchText),
+            hiddenUntil: localState.hiddenUntil).visible
+        return Ordering.workspaceChips(for: base, names: workspaceNames)
     }
 
     private var filtered: (visible: [Issue], hidden: HiddenCounts) {
@@ -92,7 +115,8 @@ final class AppState {
             for: filtered.visible,
             groupBy: preferences.groupBy,
             sortBy: preferences.sortBy,
-            ascending: preferences.sortAscending)
+            ascending: preferences.sortAscending,
+            names: workspaceNames)
     }
 
     var hiddenCounts: HiddenCounts { filtered.hidden }
@@ -154,7 +178,27 @@ final class AppState {
 
     func describeFailure(_ error: any Error) -> String { describe(error) }
 
-    var isConfigured: Bool { Keychain.hasAPIKey() }
+    var isConfigured: Bool { workspaces.hasAnyKey }
+
+    /// The service that owns an issue — the only one whose credential can
+    /// mutate it.
+    func service(for workspaceID: String) -> LinearService? {
+        guard let workspace = workspaces.workspace(id: workspaceID) else { return nil }
+        if let existing = services[workspaceID] { return existing }
+        let service = LinearService(
+            workspaceID: workspace.id, keychainAccount: workspace.keychainAccount)
+        services[workspaceID] = service
+        return service
+    }
+
+    func service(for issue: Issue) -> LinearService? { service(for: issue.workspaceID) }
+
+    /// Workspace id → display name, for group headers and chips.
+    var workspaceNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: workspaces.workspaces.map { ($0.id, $0.name) })
+    }
+
+    var showsWorkspaceDimension: Bool { workspaces.enabled.count > 1 }
 
     // MARK: - Selection
 
@@ -201,6 +245,13 @@ final class AppState {
         syncTask = nil
     }
 
+    /// Polls every enabled workspace and merges the results.
+    ///
+    /// **Each workspace succeeds or fails on its own.** A revoked key in one
+    /// account must not blank the tasks from the others, so a failure is
+    /// recorded against that workspace and its *previous* issues are kept
+    /// rather than dropped. Only a workspace that answered contributes a fresh
+    /// snapshot, and only its own rows are replaced.
     func refresh() async {
         guard isConfigured else {
             errorMessage = nil
@@ -211,32 +262,71 @@ final class AppState {
         isSyncing = true
         defer { isSyncing = false; hasLoadedOnce = true }
 
-        // States first and separately: without them `E` and the status picker
-        // are dead keys, and a states failure should say so rather than looking
-        // like an empty issue list.
-        if statesByTeam.isEmpty {
+        let active = workspaces.enabled
+        var freshIssues: [Issue] = []
+        var answered: Set<String> = []
+
+        for workspace in active {
+            guard let service = service(for: workspace.id) else { continue }
+            guard workspaces.hasKey(for: workspace.id) else {
+                workspaceErrors[workspace.id] = "No API key yet."
+                continue
+            }
+
+            // States first: without them `E` and the status picker are dead
+            // keys for this workspace, and that should say so rather than look
+            // like an empty list.
+            if statesByTeam(hasAnyFor: workspace.id) == false {
+                do {
+                    let states = try await service.fetchWorkflowStates()
+                    for (teamID, teamStates) in states { statesByTeam[teamID] = teamStates }
+                    statesWorkspaces.insert(workspace.id)
+                } catch {
+                    workspaceErrors[workspace.id] = describe(error)
+                    continue
+                }
+            }
+
             do {
-                statesByTeam = try await linearService.fetchWorkflowStates()
+                let snapshot = try await service.fetchAssignedIssues()
+                freshIssues.append(contentsOf: snapshot.issues)
+                answered.insert(workspace.id)
+                viewerName = snapshot.viewerName
+                workspaces.updateIdentity(
+                    id: workspace.id,
+                    name: snapshot.organizationName,
+                    urlKey: snapshot.organizationURLKey)
+                workspaceErrors.removeValue(forKey: workspace.id)
             } catch {
-                errorMessage = describe(error)
-                return
+                workspaceErrors[workspace.id] = describe(error)
             }
         }
 
-        do {
-            let snapshot = try await linearService.fetchAssignedIssues()
-            merge(snapshot.issues)
-            viewerName = snapshot.viewerName
-            lastSyncedAt = Date()
-            errorMessage = nil
-            IssueCache.save(issues)
-
-            localState.prune(livingIssueIDs: Set(issues.map(\.id)))
-            localState.save()
-            selectFirstIfNeeded()
-        } catch {
-            errorMessage = describe(error)
+        // Rows from workspaces that did not answer are carried over untouched;
+        // rows from ones no longer configured are dropped.
+        let configured = Set(active.map(\.id))
+        let carried = issues.filter {
+            !answered.contains($0.workspaceID) && configured.contains($0.workspaceID)
         }
+        merge(freshIssues + carried)
+
+        if answered.isEmpty, !active.isEmpty {
+            // Everything failed — that is worth a banner, where one failure is not.
+            errorMessage = workspaceErrors.values.first
+        } else {
+            errorMessage = nil
+            lastSyncedAt = Date()
+            IssueCache.save(issues)
+        }
+
+        localState.prune(livingIssueIDs: Set(issues.map(\.id)))
+        localState.save()
+        selectFirstIfNeeded()
+    }
+
+    /// Whether the states cache has been filled for a workspace.
+    private func statesByTeam(hasAnyFor workspaceID: String) -> Bool {
+        statesWorkspaces.contains(workspaceID)
     }
 
     /// Replaces the list from a snapshot, **except** for issues with a mutation
@@ -271,7 +361,8 @@ final class AppState {
             guard let self else { return }
             defer { self.detailTasks.remove(issue.id) }
             do {
-                let detail = try await self.linearService.fetchDetail(issueID: issue.id)
+                guard let service = self.service(for: issue) else { return }
+                let detail = try await service.fetchDetail(issueID: issue.id)
                 self.details[issue.id] = detail
             } catch {
                 self.rowErrors[issue.id] = self.describe(error)

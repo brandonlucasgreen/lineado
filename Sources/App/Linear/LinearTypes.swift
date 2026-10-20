@@ -85,8 +85,14 @@ struct AssignedIssuesPayload: Decodable, Sendable {
             var pageInfo: PageInfo?
             var nodes: [IssueNode]?
         }
+        struct Organization: Decodable, Sendable {
+            var id: String?
+            var name: String?
+            var urlKey: String?
+        }
         var id: String?
         var name: String?
+        var organization: Organization?
         var assignedIssues: Connection?
     }
     var viewer: Viewer

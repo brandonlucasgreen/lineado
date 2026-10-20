@@ -12,6 +12,8 @@ struct Preferences: Sendable, Equatable {
     var showsBacklog: Bool = false
     /// Nil means the "All" chip.
     var teamID: String?
+    /// Nil means every workspace.
+    var workspaceID: String?
     /// Seconds between polls. Linear's personal-key budget is ~1,500 req/hour;
     /// 60s spends ~60 of it.
     var pollInterval: TimeInterval = 60
@@ -22,6 +24,7 @@ struct Preferences: Sendable, Equatable {
         static let sortAscending = "sortAscending"
         static let showsBacklog = "showsBacklog"
         static let teamID = "teamID"
+        static let workspaceID = "workspaceID"
         static let pollInterval = "pollInterval"
     }
 
@@ -38,6 +41,7 @@ struct Preferences: Sendable, Equatable {
         }
         prefs.showsBacklog = defaults.bool(forKey: Key.showsBacklog)
         prefs.teamID = defaults.string(forKey: Key.teamID)
+        prefs.workspaceID = defaults.string(forKey: Key.workspaceID)
         let interval = defaults.double(forKey: Key.pollInterval)
         if interval >= 15 { prefs.pollInterval = interval }
         return prefs
@@ -49,6 +53,7 @@ struct Preferences: Sendable, Equatable {
         defaults.set(sortAscending, forKey: Key.sortAscending)
         defaults.set(showsBacklog, forKey: Key.showsBacklog)
         defaults.set(teamID, forKey: Key.teamID)
+        defaults.set(workspaceID, forKey: Key.workspaceID)
         defaults.set(pollInterval, forKey: Key.pollInterval)
     }
 }

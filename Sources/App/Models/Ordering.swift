@@ -4,7 +4,7 @@ import Foundation
 
 /// What the list is grouped into.
 enum GroupBy: String, Sendable, CaseIterable, Codable, Identifiable {
-    case none, priority, status, project, milestone, team
+    case none, priority, status, project, milestone, team, workspace
     var id: String { rawValue }
 
     var label: String {
@@ -15,13 +15,18 @@ enum GroupBy: String, Sendable, CaseIterable, Codable, Identifiable {
         case .project: "Project"
         case .milestone: "Milestone"
         case .team: "Team"
+        case .workspace: "Workspace"
         }
     }
+
+    /// Grouping by workspace is meaningless with one workspace configured, so
+    /// the menus leave it out rather than offering a no-op.
+    var requiresMultipleWorkspaces: Bool { self == .workspace }
 }
 
 /// How rows are ordered inside a group.
 enum SortBy: String, Sendable, CaseIterable, Codable, Identifiable {
-    case priority, dueDate, created, updated, team
+    case priority, dueDate, created, updated, team, workspace
     var id: String { rawValue }
 
     var label: String {
@@ -31,8 +36,11 @@ enum SortBy: String, Sendable, CaseIterable, Codable, Identifiable {
         case .created: "Created"
         case .updated: "Updated"
         case .team: "Team"
+        case .workspace: "Workspace"
         }
     }
+
+    var requiresMultipleWorkspaces: Bool { self == .workspace }
 }
 
 // MARK: - Filtering
@@ -43,6 +51,8 @@ enum SortBy: String, Sendable, CaseIterable, Codable, Identifiable {
 /// toggle and the search text all narrow the same list, and the footer reports
 /// each one's contribution so the list never silently lies about its size.
 struct FilterCriteria: Sendable, Equatable {
+    /// Nil means every workspace.
+    var workspaceID: String?
     /// Nil means every team.
     var teamID: String?
     var showsBacklog: Bool = false
@@ -54,11 +64,12 @@ struct FilterCriteria: Sendable, Equatable {
 /// Why an issue is not on screen. Drives the footer's "N hidden" accounting.
 struct HiddenCounts: Sendable, Equatable {
     var backlog = 0
+    var otherWorkspaces = 0
     var otherTeams = 0
     var snoozed = 0
     var search = 0
 
-    var total: Int { backlog + otherTeams + snoozed + search }
+    var total: Int { backlog + otherWorkspaces + otherTeams + snoozed + search }
     var isEmpty: Bool { total == 0 }
 }
 
@@ -108,6 +119,10 @@ enum Ordering {
             }
             if !criteria.showsBacklog, issue.state.type.isBacklog {
                 counts.backlog += 1
+                return false
+            }
+            if let workspaceID = criteria.workspaceID, issue.workspaceID != workspaceID {
+                counts.otherWorkspaces += 1
                 return false
             }
             if let teamID = criteria.teamID, issue.team.id != teamID {
@@ -194,17 +209,27 @@ enum Ordering {
             return compareDates(lhs.updatedAt, rhs.updatedAt)
         case .team:
             return compareStrings(lhs.team.key, rhs.team.key)
+        case .workspace:
+            // Falls through to team, so a workspace sort still reads in a
+            // sensible order inside each workspace rather than arbitrarily.
+            let byWorkspace = compareStrings(lhs.workspaceID, rhs.workspaceID)
+            return byWorkspace == .orderedSame
+                ? compareStrings(lhs.team.key, rhs.team.key)
+                : byWorkspace
         }
     }
 
     // MARK: Group
 
     /// The whole pipeline: filter, then group, then sort inside each group.
+    /// `names` maps workspace id to display name. Passed in rather than looked
+    /// up, so this stays a pure function of its arguments.
     nonisolated static func sections(
         for issues: [Issue],
         groupBy: GroupBy,
         sortBy: SortBy,
-        ascending: Bool = true
+        ascending: Bool = true,
+        names: [String: String] = [:]
     ) -> [IssueSection] {
         switch groupBy {
         case .none:
@@ -220,6 +245,8 @@ enum Ordering {
             return groupByMilestone(issues, sortBy: sortBy, ascending: ascending)
         case .team:
             return groupByTeam(issues, sortBy: sortBy, ascending: ascending)
+        case .workspace:
+            return groupByWorkspace(issues, names: names, sortBy: sortBy, ascending: ascending)
         }
     }
 
@@ -346,6 +373,22 @@ enum Ordering {
             }
     }
 
+    private nonisolated static func groupByWorkspace(
+        _ issues: [Issue], names: [String: String], sortBy: SortBy, ascending: Bool
+    ) -> [IssueSection] {
+        let buckets = Dictionary(grouping: issues, by: \.workspaceID)
+        return buckets
+            .map { id, rows in (id: id, name: names[id] ?? "Workspace", rows: rows) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { bucket in
+                IssueSection(
+                    id: "workspace.\(bucket.id)",
+                    title: bucket.name,
+                    subtitle: nil,
+                    issues: sort(bucket.rows, by: sortBy, ascending: ascending))
+            }
+    }
+
     private nonisolated static func groupByTeam(
         _ issues: [Issue], sortBy: SortBy, ascending: Bool
     ) -> [IssueSection] {
@@ -372,6 +415,14 @@ enum Ordering {
     /// The filter bar's chips: every team that has a visible issue, with its
     /// count, in a stable order. Built from the list *before* the team filter
     /// is applied, or selecting one chip would hide all the others.
+    nonisolated static func workspaceChips(
+        for issues: [Issue], names: [String: String]
+    ) -> [(id: String, name: String, count: Int)] {
+        Dictionary(grouping: issues, by: \.workspaceID)
+            .map { id, rows in (id: id, name: names[id] ?? "Workspace", count: rows.count) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     nonisolated static func teamChips(for issues: [Issue]) -> [(team: Issue.Team, count: Int)] {
         Dictionary(grouping: issues, by: \.team.id).values
             .compactMap { rows in rows.first.map { ($0.team, rows.count) } }

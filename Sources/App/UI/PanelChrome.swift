@@ -1,6 +1,88 @@
 import AppKit
 import SwiftUI
 
+/// The workspace filter row, shown only when more than one is configured.
+///
+/// Sits above the team chips because the two dimensions nest: teams belong to
+/// workspaces, so narrowing the workspace narrows which teams are even
+/// offered. With a single workspace the whole row disappears — the dimension
+/// does not exist yet, and a filter row with one chip in it is noise.
+struct WorkspaceChips: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        @Bindable var app = app
+        let chips = app.workspaceChips
+
+        if app.showsWorkspaceDimension {
+            ScrollView(.horizontal) {
+                HStack(spacing: 5) {
+                    chip(title: "All Workspaces",
+                         count: chips.reduce(0) { $0 + $1.count },
+                         isSelected: app.preferences.workspaceID == nil,
+                         error: nil) {
+                        app.preferences.workspaceID = nil
+                        app.preferences.teamID = nil
+                    }
+                    ForEach(chips, id: \.id) { entry in
+                        chip(title: entry.name, count: entry.count,
+                             isSelected: app.preferences.workspaceID == entry.id,
+                             error: app.workspaceErrors[entry.id]) {
+                            app.preferences.workspaceID = entry.id
+                            // The team filter belongs to the old workspace and
+                            // would match nothing here.
+                            app.preferences.teamID = nil
+                        }
+                    }
+                    // A workspace that failed has no rows, so it has no chip —
+                    // without this its error would be invisible.
+                    ForEach(app.workspaces.enabled.filter { workspace in
+                        app.workspaceErrors[workspace.id] != nil
+                            && !chips.contains { $0.id == workspace.id }
+                    }) { workspace in
+                        chip(title: workspace.name, count: 0, isSelected: false,
+                             error: app.workspaceErrors[workspace.id]) {
+                            app.preferences.workspaceID = workspace.id
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+            .scrollIndicators(.never)
+            .frame(height: 24)
+        }
+    }
+
+    private func chip(
+        title: String, count: Int, isSelected: Bool, error: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if error != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
+                }
+                Text(title).font(.system(size: 11, weight: .medium))
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.caption2)
+                        .foregroundStyle(isSelected ? .primary : .tertiary)
+                }
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(isSelected
+                               ? Color.accentColor.opacity(0.25)
+                               : Color.primary.opacity(0.06)))
+        }
+        .buttonStyle(.plain)
+        .help(error ?? title)
+    }
+}
+
 /// The team filter bar — the direct analogue of Inbox & Chill's source chips.
 ///
 /// "All" plus one chip per team that currently has a visible issue, with counts.
@@ -111,6 +193,9 @@ struct FooterView: View {
         let counts = app.hiddenCounts
         var parts: [String] = []
         if counts.backlog > 0 { parts.append("\(counts.backlog) backlog") }
+        if counts.otherWorkspaces > 0 {
+            parts.append("\(counts.otherWorkspaces) other workspaces")
+        }
         if counts.otherTeams > 0 { parts.append("\(counts.otherTeams) other teams") }
         if counts.snoozed > 0 { parts.append("\(counts.snoozed) hidden") }
         if counts.search > 0 { parts.append("\(counts.search) filtered") }
@@ -148,13 +233,19 @@ struct GroupSortMenuItems: View {
     var body: some View {
         @Bindable var app = app
 
+        // Offering "Workspace" with one workspace configured would be a
+        // choice that visibly does nothing.
         Picker("Group by", selection: $app.preferences.groupBy) {
-            ForEach(GroupBy.allCases) { option in
+            ForEach(GroupBy.allCases.filter {
+                app.showsWorkspaceDimension || !$0.requiresMultipleWorkspaces
+            }) { option in
                 Text(option.label).tag(option)
             }
         }
         Picker("Sort by", selection: $app.preferences.sortBy) {
-            ForEach(SortBy.allCases) { option in
+            ForEach(SortBy.allCases.filter {
+                app.showsWorkspaceDimension || !$0.requiresMultipleWorkspaces
+            }) { option in
                 Text(option.label).tag(option)
             }
         }
@@ -217,6 +308,9 @@ struct EmptyStateView: View {
         let counts = app.hiddenCounts
         var parts: [String] = []
         if counts.search > 0 { parts.append("\(counts.search) by the filter") }
+        if counts.otherWorkspaces > 0 {
+            parts.append("\(counts.otherWorkspaces) in other workspaces")
+        }
         if counts.otherTeams > 0 { parts.append("\(counts.otherTeams) on other teams") }
         if counts.backlog > 0 { parts.append("\(counts.backlog) in backlog") }
         if counts.snoozed > 0 { parts.append("\(counts.snoozed) hidden until later") }

@@ -101,7 +101,11 @@ extension AppState {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         do {
-            try await linearService.addComment(issueID: issue.id, body: trimmed)
+            guard let service = service(for: issue) else {
+                setRowError(issue.id, "That workspace is no longer configured.")
+                return false
+            }
+            try await service.addComment(issueID: issue.id, body: trimmed)
             details.removeValue(forKey: issue.id)
             loadDetailIfNeeded(for: issue)
             return true
@@ -167,7 +171,13 @@ extension AppState {
         revert: @escaping (inout Issue) -> Void,
         _ work: @escaping @Sendable (LinearService) async throws -> Issue?
     ) {
-        let service = linearService
+        // Routed to the credential that owns this issue. A mutation sent on
+        // another workspace's key would 404, or worse, hit an unrelated issue.
+        guard let service = serviceForIssue(id) else {
+            setRowError(id, "That workspace is no longer configured.")
+            revertNow(id, revert)
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -188,6 +198,15 @@ extension AppState {
                 self.dropUndoEntries(for: id)
             }
         }
+    }
+
+    private func serviceForIssue(_ id: String) -> LinearService? {
+        guard let issue = issues.first(where: { $0.id == id }) else { return nil }
+        return service(for: issue)
+    }
+
+    private func revertNow(_ id: String, _ revert: (inout Issue) -> Void) {
+        rollback(id, revert)
     }
 
     private func rollback(_ id: String, _ revert: (inout Issue) -> Void) {

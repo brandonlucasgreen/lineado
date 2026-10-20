@@ -151,7 +151,10 @@ struct MainWindowView: View {
                 TextField("Filter…", text: $app.searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 280)
-                TeamChips()
+                VStack(alignment: .leading, spacing: 4) {
+                    WorkspaceChips()
+                    TeamChips()
+                }
                 Spacer()
             }
             .padding(10)

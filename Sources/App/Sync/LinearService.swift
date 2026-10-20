@@ -7,8 +7,18 @@ import Foundation
 /// `[Issue]`, never an `IssueNode`.
 actor LinearService {
     private let client: LinearClient
+    /// Stamped onto every issue this service returns, so a mutation can be
+    /// routed back to the credential that is allowed to perform it.
+    let workspaceID: String
 
-    init(client: LinearClient = LinearClient()) {
+    init(workspaceID: String, keychainAccount: String) {
+        self.workspaceID = workspaceID
+        self.client = LinearClient(keyProvider: { Keychain.get(keychainAccount) })
+    }
+
+    /// For tests and previews.
+    init(workspaceID: String = "test", client: LinearClient) {
+        self.workspaceID = workspaceID
         self.client = client
     }
 
@@ -17,6 +27,9 @@ actor LinearService {
     struct Snapshot: Sendable {
         var issues: [Issue]
         var viewerName: String
+        /// What Linear calls this workspace. Fills in the name the user sees.
+        var organizationName: String
+        var organizationURLKey: String?
         /// Nodes Linear sent that could not become rows (PLAN: no silent drops).
         var dropped: Int
     }
@@ -29,6 +42,8 @@ actor LinearService {
     func fetchAssignedIssues() async throws -> Snapshot {
         var all: [IssueNode] = []
         var viewerName = ""
+        var organizationName = ""
+        var organizationURLKey: String?
         var cursor: String?
         var pages = 0
 
@@ -38,6 +53,8 @@ actor LinearService {
                 LinearQueries.assignedIssues, variables: variables.isEmpty ? nil : variables)
 
             viewerName = payload.viewer.name ?? ""
+            organizationName = payload.viewer.organization?.name ?? ""
+            organizationURLKey = payload.viewer.organization?.urlKey
             all.append(contentsOf: payload.viewer.assignedIssues?.nodes ?? [])
 
             let info = payload.viewer.assignedIssues?.pageInfo
@@ -48,11 +65,17 @@ actor LinearService {
             if pages >= 20 { break }
         } while cursor != nil
 
-        let (issues, dropped) = LinearMapper.issues(from: all)
+        var (issues, dropped) = LinearMapper.issues(from: all)
+        // Stamped here rather than in the mapper: the mapper is pure and knows
+        // nothing about which credential fetched these.
+        for index in issues.indices { issues[index].workspaceID = workspaceID }
         if dropped > 0 {
             log.warning("Dropped \(dropped) issue node(s) with no team or no state")
         }
-        return Snapshot(issues: issues, viewerName: viewerName, dropped: dropped)
+        return Snapshot(
+            issues: issues, viewerName: viewerName,
+            organizationName: organizationName, organizationURLKey: organizationURLKey,
+            dropped: dropped)
     }
 
     /// Workflow states for the whole workspace, grouped by team.
@@ -130,6 +153,10 @@ actor LinearService {
         guard payload.issueUpdate.success == true else {
             throw LinearClient.Failure.graphQLErrors(["Linear refused the change"])
         }
-        return payload.issueUpdate.issue.flatMap(LinearMapper.issue(from:))
+        guard var issue = payload.issueUpdate.issue.flatMap(LinearMapper.issue(from:)) else {
+            return nil
+        }
+        issue.workspaceID = workspaceID
+        return issue
     }
 }

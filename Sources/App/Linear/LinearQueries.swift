@@ -46,6 +46,7 @@ enum LinearQueries {
           viewer {
             id
             name
+            organization { id name urlKey }
             assignedIssues(
               first: 100
               after: $after

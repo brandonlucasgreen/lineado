@@ -114,6 +114,7 @@ struct PanelView: View {
             .padding(.horizontal, 10)
             .padding(.top, 8)
 
+            WorkspaceChips()
             TeamChips()
         }
         .padding(.bottom, 6)

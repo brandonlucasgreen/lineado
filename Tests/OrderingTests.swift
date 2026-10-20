@@ -354,3 +354,110 @@ struct FlattenTests {
         #expect(flat == ["C", "A", "B"])
     }
 }
+
+// MARK: - Multiple workspaces
+
+@Suite("Workspaces")
+struct WorkspaceTests {
+    static let names = ["w1": "Buffer", "w2": "Side Project"]
+
+    static func issue(_ identifier: String, workspace: String,
+                      team: Issue.Team = Fixture.core) -> Issue {
+        var issue = Fixture.issue(identifier, team: team)
+        issue.workspaceID = workspace
+        return issue
+    }
+
+    @Test("Grouping by workspace uses the display name, ordered alphabetically")
+    func groupsByWorkspace() {
+        let issues = [
+            Self.issue("A", workspace: "w2"),
+            Self.issue("B", workspace: "w1"),
+        ]
+        let sections = Ordering.sections(
+            for: issues, groupBy: .workspace, sortBy: .priority, names: Self.names)
+        #expect(sections.map(\.title) == ["Buffer", "Side Project"])
+    }
+
+    /// A workspace with no name yet — one added seconds ago, before its first
+    /// poll — must still group rather than vanish.
+    @Test("An unnamed workspace still gets a bucket")
+    func unnamedWorkspace() {
+        let issues = [Self.issue("A", workspace: "unknown")]
+        let sections = Ordering.sections(
+            for: issues, groupBy: .workspace, sortBy: .priority, names: Self.names)
+        #expect(sections.count == 1)
+        #expect(sections[0].issues.count == 1)
+    }
+
+    @Test("The workspace filter narrows, and is counted separately")
+    func filtersByWorkspace() {
+        let issues = [
+            Self.issue("A", workspace: "w1"),
+            Self.issue("B", workspace: "w2"),
+            Self.issue("C", workspace: "w2"),
+        ]
+        let result = Ordering.filter(
+            issues, criteria: FilterCriteria(workspaceID: "w2", showsBacklog: true))
+        #expect(result.visible.map(\.identifier) == ["B", "C"])
+        #expect(result.hidden.otherWorkspaces == 1)
+        #expect(result.hidden.otherTeams == 0)
+    }
+
+    /// Two workspaces can both have a team whose key is CORE, and a human
+    /// identifier like CORE-123 can exist in both. Nothing may merge them.
+    @Test("Same team key in two workspaces stays separate")
+    func sameTeamKeyAcrossWorkspaces() {
+        let coreA = Issue.Team(id: "team-a", key: "CORE", name: "Core UX")
+        let coreB = Issue.Team(id: "team-b", key: "CORE", name: "Core")
+        let issues = [
+            Self.issue("CORE-1", workspace: "w1", team: coreA),
+            Self.issue("CORE-1", workspace: "w2", team: coreB),
+        ]
+        // Team ids are UUIDs, so they are genuinely different teams.
+        let sections = Ordering.sections(for: issues, groupBy: .team, sortBy: .priority)
+        #expect(sections.count == 2)
+
+        // And the workspace filter separates them even though the identifier
+        // and team key are identical.
+        let filtered = Ordering.filter(
+            issues, criteria: FilterCriteria(workspaceID: "w1", showsBacklog: true))
+        #expect(filtered.visible.count == 1)
+    }
+
+    @Test("Sorting by workspace falls through to team, not to arbitrary order")
+    func sortsByWorkspaceThenTeam() {
+        let alpha = Issue.Team(id: "t1", key: "AAA", name: "Alpha")
+        let zulu = Issue.Team(id: "t2", key: "ZZZ", name: "Zulu")
+        let issues = [
+            Self.issue("A", workspace: "w1", team: zulu),
+            Self.issue("B", workspace: "w1", team: alpha),
+            Self.issue("C", workspace: "w0", team: zulu),
+        ]
+        let sorted = Ordering.sort(issues, by: .workspace)
+        #expect(sorted.map(\.identifier) == ["C", "B", "A"])
+    }
+
+    @Test("Chips count each workspace's visible issues")
+    func workspaceChips() {
+        let issues = [
+            Self.issue("A", workspace: "w1"),
+            Self.issue("B", workspace: "w2"),
+            Self.issue("C", workspace: "w2"),
+        ]
+        let chips = Ordering.workspaceChips(for: issues, names: Self.names)
+        #expect(chips.map(\.name) == ["Buffer", "Side Project"])
+        #expect(chips.map(\.count) == [1, 2])
+    }
+
+    /// Workspace grouping and sorting are hidden from the menus when only one
+    /// workspace exists, because the choice would visibly do nothing.
+    @Test("Workspace options declare that they need more than one workspace")
+    func dimensionGating() {
+        #expect(GroupBy.workspace.requiresMultipleWorkspaces)
+        #expect(SortBy.workspace.requiresMultipleWorkspaces)
+        for option in GroupBy.allCases where option != .workspace {
+            #expect(!option.requiresMultipleWorkspaces)
+        }
+    }
+}
