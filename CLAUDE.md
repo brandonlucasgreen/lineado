@@ -40,7 +40,7 @@ scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
 Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 58 of them, all
 over pure functions — there is no UI test and no network test.
 
-## Eight things this codebase already learned
+## Ten things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -191,6 +191,25 @@ planning. Four writes only: status, priority, due date, comment.
 executable form. If a feature request needs it relaxed, that is a `PLAN.md`
 conversation first.
 
+### 9. SwiftUI will not render a Markdown heading from `AttributedString`
+
+Both parsing modes fail, differently. `.inlineOnlyPreservingWhitespace`
+ignores block syntax, so `### Heading` renders as literal hashes. `.full`
+parses blocks into `presentationIntent` runs that `Text` declines to style, so
+the hashes vanish and the line looks like every other line — worse.
+
+`UI/MarkdownText.swift` parses blocks line by line and renders each as its own
+styled view, keeping `AttributedString` for inline syntax only. `MarkdownTests`
+covers the grammar, including the two traps: the space after `#` is required so
+`#hashtag` stays text, and a code fence swallows its contents so `# comment`
+inside a shell snippet is not a heading.
+
+### 10. The test target aliases `Issue`, which shadows Swift Testing's
+
+`Tests/OrderingTests.swift` declares `typealias Issue = Lineado.Issue` so tests
+can say `Issue` and mean the app's type. That shadows `Testing.Issue`, so
+recording a failure manually needs the full name: `Testing.Issue.record(...)`.
+
 ## Two macOS facts that shaped the app
 
 - **An `LSUIElement` app is never "active"**, so a window it opens is ordered
@@ -198,6 +217,13 @@ conversation first.
   closes the panel, activates the app, and orders the window front — on the
   *next* runloop turn, because the window does not exist until `openSettings()`
   returns.
+- **A global hotkey's modifiers are still held when its handler runs.**
+  `NSStatusBarButton.performClick` reads the live modifier state, and a
+  Control-click is a secondary click — so a ⌃-based shortcut synthesises what
+  AppKit treats as a right-click. `PanelToggler.toggle` invokes the button's
+  `target`/`action` instead, which does not read modifiers; it also defers one
+  runloop turn, because a click issued synchronously inside the Carbon event
+  dispatch is swallowed outright.
 - **Keychain ACLs are keyed to the code signature, not the bundle id.** An
   ad-hoc-signed debug build reading a key the Developer ID build saved prompts
   the user for their login keychain password. Build Release with the real
@@ -220,15 +246,21 @@ Linear MCP; the mutations have never executed. Before trusting any write path:
 
 Say plainly in any PR which of these you did and which you did not.
 
-### The global hotkey is unexplained
+### The global hotkey, through two fixes
 
-Brandon reports ⌃⌥L does nothing. Everything measurable works: the shortcut
-stores, the handler registers at launch, and `PanelToggler.toggle()` opens the
-panel even with another app frontmost (verified 2026-10-20 by probing with
-another app in front). osascript cannot simulate the press — it is blocked from
-sending keystrokes without accessibility permission.
+⌃⌥L still did not work after the first fix. What is established:
 
-`PanelToggler.diagnose` writes one line to
-`~/Library/Application Support/Lineado/window-diagnostic.log` when the handler
-fires. **Delete it and its two callers in `LineadoApp.init()` once a real key
-press has been seen** — it is scaffolding, not a feature.
+- The handler **fires** — ten traced presses, ten firings. Registration and
+  shortcut storage were never the problem.
+- A `performClick` issued synchronously inside the Carbon event dispatch is
+  swallowed. Deferring one runloop turn is necessary but was not sufficient.
+- The current fix invokes the button's `target`/`action`, on the theory that
+  `performClick` was arriving as a Control-click (see the macOS facts above).
+
+**If it still fails, the next datum is whether a shortcut without Control
+works** — that confirms or kills the modifier theory in one press.
+
+`PanelDiagnostic` writes to `~/Library/Application Support/Lineado/hotkey.log`,
+recording the modifier state at fire time and whether the panel opened.
+**Delete it and its three call sites once a real press is confirmed to work** —
+it is scaffolding, not a feature.
