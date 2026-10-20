@@ -532,16 +532,25 @@ pass, appearances, Reduce Motion, and the global hotkey via `KeyboardShortcuts`.
 Homebrew cask.
 
 v2, explicitly out of scope above: multi-select and batch actions, App Intents /
-Shortcuts, a second Linear workspace, sub-issue trees, and cycle awareness.
+Shortcuts, sub-issue trees, and cycle awareness. (A second Linear workspace was
+on this list and shipped early — see §9.)
 
 ## 9. Risks and open questions
 
 - **Query complexity, not request count, is the real Linear limit.** Phase 1 must
   measure it rather than assume the §4.5 query fits. The fallback is moving
   `labels` out of the list query.
-- **One API key is one workspace.** v1 is single-workspace; a personal Linear
-  account alongside the Buffer one would need a second credential and a source
-  concept, which is most of the complexity §2 was cutting.
+- ~~**One API key is one workspace.**~~ **Resolved 2026-10-20.** Lineado now
+  holds a key per workspace and merges them into one list, with Workspace as a
+  fourth dimension to group, sort and filter by. It cost ~450 lines rather than
+  the "most of the complexity §2 was cutting" predicted here, because
+  `LinearClient` already took a key provider, `LinearService` is a stateless
+  actor, and `Ordering` is pure. The forecast was wrong in the pessimistic
+  direction, which is worth noting the next time this file estimates something.
+
+  The rule that keeps it honest: **each workspace succeeds or fails on its
+  own.** A revoked key in one account carries that workspace's previous issues
+  over rather than blanking the list.
 - **Pagination.** Over 100 open assigned issues the query pages; page to
   completion, because a silently truncated task list is worse than a slow one.
 - **Sub-issues** appear as ordinary rows with a parent chip, not a tree. If much

@@ -208,8 +208,14 @@ recording a failure manually needs the full name: `Testing.Issue.record(...)`.
 - `Linear/LinearClient.swift` — transport. Typed failures, because "Linear isn't
   working" is four different bugs and the panel has to say which.
 - `Linear/LinearMapper.swift` — wire → domain, `nonisolated` and pure.
-- `Sync/LinearService.swift` — the fetches and the four writes. Pages to
-  completion; a truncated task list hides work without saying so.
+- `Sync/LinearService.swift` — the fetches and the four writes, **one instance
+  per workspace**. Pages to completion; a truncated task list hides work
+  without saying so.
+- `Models/Workspace.swift` — a workspace and its credential. Each workspace
+  succeeds or fails on its own in `AppState.refresh`: a revoked key carries
+  that workspace's previous issues over rather than blanking the list. Linear
+  ids are UUIDs so nothing collides across workspaces — except the *human*
+  identifier, since `CORE-123` can exist in two.
 - `Sync/AppState.swift` — `@MainActor @Observable`, everything on screen.
   `AppState+Mutations.swift` is the write path, split only for readability.
 - `Models/Ordering.swift` — all grouping, sorting and filtering, as
@@ -278,6 +284,9 @@ Linear MCP; the mutations have never executed. Before trusting any write path:
    list query and fetching them with the detail.
 4. Exercise each of the four writes once, including **clearing** a due date,
    which is the one the variables type exists for.
+5. With two workspaces configured, write to an issue in each. Mutations route
+   through `service(for: issue)`; a write on the wrong workspace's key would
+   404 or hit an unrelated issue. That routing is guarded but untested.
 
 Say plainly in any PR which of these you did and which you did not.
 
