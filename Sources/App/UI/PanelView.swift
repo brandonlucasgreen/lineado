@@ -14,6 +14,7 @@ struct PanelView: View {
 
     @State private var activePicker: ActivePicker?
     @State private var keyMonitor: Any?
+    @State private var showsAllShortcuts = false
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -49,6 +50,15 @@ struct PanelView: View {
         // sits inside the system's rounded panel shape.
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .center) { pickerOverlay }
+        .sheet(isPresented: $showsAllShortcuts) {
+            VStack(spacing: 0) {
+                AllShortcutsView()
+                Divider()
+                Button("Done") { showsAllShortcuts = false }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .padding(8)
+            }
+        }
         .onAppear(perform: startKeyMonitor)
         .onDisappear(perform: stopKeyMonitor)
         // Refresh on open, but do NOT start or stop the poll loop here. The
@@ -322,6 +332,8 @@ struct PanelView: View {
             app.preferences.teamID = chips.indices.contains(index) ? chips[index].team.id : nil
         case .focusSearch:
             searchFocused = true
+        case .showAllShortcuts:
+            showsAllShortcuts = true
         case .appendSearch(let character):
             app.searchText.append(character)
         case .deleteSearchCharacter:

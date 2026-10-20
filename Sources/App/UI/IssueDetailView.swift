@@ -30,11 +30,7 @@ struct IssueDetailView: View {
 
             if let detail {
                 if let description = detail.description, !description.isEmpty {
-                    Text(markdown(description))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(8)
-                        .textSelection(.enabled)
+                    MarkdownText(raw: description, lineLimitPerBlock: 6)
                 }
 
                 if detail.comments.isEmpty {
@@ -88,10 +84,7 @@ struct IssueDetailView: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    Text(markdown(comment.body))
-                        .font(.callout)
-                        .lineLimit(6)
-                        .textSelection(.enabled)
+                    MarkdownText(raw: comment.body, lineLimitPerBlock: 6)
                 }
             }
             if comments.count > 6 {
@@ -140,14 +133,5 @@ struct IssueDetailView: View {
             // because the network blipped is the worst possible response.
             if posted { draft = "" }
         }
-    }
-
-    /// Linear bodies are Markdown. Rendering failures fall back to the raw
-    /// text rather than to nothing.
-    private func markdown(_ raw: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: raw,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(raw)
     }
 }

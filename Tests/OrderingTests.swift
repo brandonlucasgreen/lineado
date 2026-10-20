@@ -147,10 +147,11 @@ struct StatusGroupingTests {
         #expect(sections[0].subtitle == nil)
     }
 
-    /// Lifecycle first, then position — so Triage leads and Started trails
-    /// however Linear's per-team `position` happens to be numbered.
-    @Test("Buckets order by lifecycle, then position")
-    func lifecycleOrder() {
+    /// Closest to done first, with Backlog always at the floor (Brandon,
+    /// 2026-10-20). Deliberately not a plain reversal of the lifecycle, which
+    /// would put Triage *below* Backlog.
+    @Test("Buckets run closest-to-done first, Backlog last")
+    func groupOrder() {
         let issues = [
             Fixture.issue("A", state: Fixture.state("In Progress", .started, position: 1)),
             Fixture.issue("B", state: Fixture.state("Triage", .triage, position: 99)),
@@ -158,7 +159,33 @@ struct StatusGroupingTests {
             Fixture.issue("D", state: Fixture.state("To Do", .unstarted, position: 3)),
         ]
         let titles = Ordering.sections(for: issues, groupBy: .status, sortBy: .priority).map(\.title)
-        #expect(titles == ["Triage", "Backlog", "To Do", "In Progress"])
+        #expect(titles == ["In Progress", "To Do", "Triage", "Backlog"])
+    }
+
+    /// Within one type, position runs descending: Linear numbers In Progress
+    /// below In Review, so descending puts the later stage on top.
+    @Test("In Review sits above In Progress")
+    func laterStageFirst() {
+        let issues = [
+            Fixture.issue("A", state: Fixture.state("In Progress", .started, position: 1)),
+            Fixture.issue("B", state: Fixture.state("In Review", .started, position: 2)),
+        ]
+        let titles = Ordering.sections(for: issues, groupBy: .status, sortBy: .priority).map(\.title)
+        #expect(titles == ["In Review", "In Progress"])
+    }
+
+    /// The picker keeps Linear's own order, which is the opposite of the list's
+    /// — it should read the way Linear reads.
+    @Test("Picker order is unchanged by the list's grouping order")
+    func pickerKeepsLinearOrder() {
+        let team = IssueNode.TeamNode(id: "core", key: "CORE", name: "Core UX")
+        let nodes: [IssueNode.StateNode] = [
+            .init(id: "c", name: "In Progress", type: "started", position: 3, team: team),
+            .init(id: "a", name: "Backlog", type: "backlog", position: 1, team: team),
+            .init(id: "b", name: "To Do", type: "unstarted", position: 2, team: team),
+        ]
+        let states = LinearMapper.statesByTeam(from: nodes)["core"] ?? []
+        #expect(states.map(\.name) == ["Backlog", "To Do", "In Progress"])
     }
 
     @Test("Grouping is deterministic across input orderings")
@@ -322,6 +349,8 @@ struct FlattenTests {
         ]
         let sections = Ordering.sections(for: issues, groupBy: .status, sortBy: .priority)
         let flat = Ordering.flattened(sections).map(\.identifier)
-        #expect(flat == ["B", "C", "A"])
+        // In Progress leads (closest to done), high before low inside it,
+        // then To Do.
+        #expect(flat == ["C", "A", "B"])
     }
 }

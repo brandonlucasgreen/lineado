@@ -248,6 +248,26 @@ struct UnconfiguredView: View {
     }
 }
 
+/// Temporary trace for the global hotkey, written to
+/// `~/Library/Application Support/Lineado/hotkey.log`.
+///
+/// Delete this type and its three call sites once a real key press has been
+/// confirmed to open the panel. It exists because this bug has survived two
+/// plausible fixes, and guessing a third time is worse than measuring.
+enum PanelDiagnostic {
+    nonisolated static func record(_ message: String) {
+        let text = "[\(Date())] \(message)\n"
+        let url = Storage.directory.appendingPathComponent("hotkey.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(text.utf8))
+            try? handle.close()
+        } else {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+}
+
 // MARK: - Settings window
 
 /// Opens Settings and actually puts it in front.
@@ -321,8 +341,33 @@ enum PanelToggler {
     static func toggle() {
         guard let button = statusItemButton else { return }
         NSApp.activate(ignoringOtherApps: true)
+
+        // Invoke the button's own action rather than synthesising a click.
+        //
+        // `performClick` consults the **live modifier state**, and a global
+        // hotkey's modifiers are still physically held when `onKeyUp` fires —
+        // so a ⌃-based shortcut (⌃⌥L) arrives as a *Control-click*, which
+        // macOS treats as a secondary click and the panel ignores. That is why
+        // the handler fired ten times for ten presses and nothing opened,
+        // while the same call from a timer with no modifiers down worked
+        // first try.
+        //
+        // The target/action path does not read modifiers at all, so it
+        // behaves the same whichever shortcut the user picked.
         DispatchQueue.main.async {
-            button.performClick(nil)
+            if let target = button.target as? NSObject,
+               let action = button.action,
+               target.responds(to: action) {
+                target.perform(action, with: button)
+                PanelDiagnostic.record("toggle via target/action")
+            } else {
+                button.performClick(nil)
+                PanelDiagnostic.record("toggle via performClick (no target/action)")
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let panels = NSApp.windows.filter { $0.className.contains("StatusBar") }.count
+                PanelDiagnostic.record("after toggle: statusBarWindows=\(panels) (1 = still closed)")
+            }
         }
     }
 

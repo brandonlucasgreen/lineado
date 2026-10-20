@@ -88,7 +88,7 @@ struct KeyModifiers: OptionSet, Sendable {
 /// by a `nonisolated static` function and tested as a table — which is the one
 /// habit that keeps a keyboard-first app's shortcuts from drifting apart from
 /// its menu items.
-enum PanelAction: Equatable, Sendable {
+enum PanelAction: Hashable, Sendable {
     case moveSelection(Int)
     case moveGroup(Int)
     case open
@@ -109,6 +109,7 @@ enum PanelAction: Equatable, Sendable {
     case cycleTeam(Int)
     case selectTeamIndex(Int)
     case focusSearch
+    case showAllShortcuts
     case appendSearch(Character)
     case deleteSearchCharacter
     case escape
@@ -117,6 +118,50 @@ enum PanelAction: Equatable, Sendable {
 
 enum KeyMap {
     /// The single source of truth for what a key does in the list.
+    ///
+    /// **The whole map, audited 2026-10-20.** Every binding is listed here and
+    /// nowhere else, and `KeyMapTests.everyBindingIsUnique` walks it to prove
+    /// no two keys produce the same action.
+    ///
+    /// | Key | Action | Mnemonic |
+    /// |---|---|---|
+    /// | `↑` `↓` | move selection | |
+    /// | `⌥↑` `⌥↓` | previous / next group | |
+    /// | `←` `→` | cycle team chip | |
+    /// | `⌘1`–`⌘9` | jump to team chip | |
+    /// | `⏎` | open in Linear | |
+    /// | `space` | expand / collapse detail | |
+    /// | `S` | status | **s**tatus |
+    /// | `P` | priority | **p**riority |
+    /// | `D` | due date | **d**ue |
+    /// | `C` | comment | **c**omment |
+    /// | `E` | complete | **e**nd, as in I&C's Done |
+    /// | `H` | hide until later | **h**ide |
+    /// | `G` | cycle grouping | **g**roup |
+    /// | `O` | cycle sorting | **o**rder |
+    /// | `B` | show / hide backlog | **b**acklog |
+    /// | `?` | all shortcuts | |
+    /// | `⌘Z` | undo | |
+    /// | `⌘C` / `⇧⌘C` | copy link / branch name | |
+    /// | `⌘R` | refresh | |
+    /// | `⌘F` | focus filter | |
+    /// | `⌘0` | open in a window | |
+    /// | `Esc` | unwind one layer | |
+    /// | any other letter | start filtering | Finder behaviour |
+    ///
+    /// Three things the audit changed:
+    ///
+    /// 1. **`D` and `space` both expanded the detail.** `D` now means *due
+    ///    date*, which is the obvious mnemonic and was previously `T` for no
+    ///    reason beyond `D` already being taken.
+    /// 2. **`⌘⏎` was a silent alias for `⏎`.** An undocumented second way to do
+    ///    the same thing is a binding that cannot be learned and cannot be
+    ///    relied on, so it is gone. (Inbox & Chill uses it for "open and mark
+    ///    done"; here that is `E` then `⏎`, and conflating them would make a
+    ///    team-visible status change one keystroke from an accidental press.)
+    /// 3. **`⌘1`–`⌘9` force-unwrapped `Int(String(c))`.** `Character.isNumber`
+    ///    is true for Arabic-Indic and other non-ASCII digits, which
+    ///    `Int(_:)` cannot parse — a crash on a keyboard layout nobody tested.
     ///
     /// `isSearching` matters because a bare letter is ambiguous: it is a verb
     /// when the list has focus and a character when the search field does. Only
@@ -131,9 +176,9 @@ enum KeyMap {
             case .character("r"): return .refresh
             case .character("f"): return .focusSearch
             case .character("0"): return .openWindow
-            case .character(let c) where c.isNumber && c != "0":
-                return .selectTeamIndex(Int(String(c))! - 1)
-            case .enter: return .open
+            case .character(let c) where c.isASCII && c.isNumber:
+                guard let digit = c.wholeNumberValue, digit >= 1 else { return nil }
+                return .selectTeamIndex(digit - 1)
             default: return nil
             }
         }
@@ -167,15 +212,15 @@ enum KeyMap {
         case .space: return .toggleDetail
         case .left: return .cycleTeam(-1)
         case .right: return .cycleTeam(1)
+        case .character("?"): return .showAllShortcuts
         case .character(let c):
             switch Character(c.lowercased()) {
             case "s": return .showStatusPicker
             case "p": return .showPriorityPicker
-            case "t": return .showDuePicker
+            case "d": return .showDuePicker
             case "c": return .showCommentComposer
             case "e": return .complete
             case "h": return .showHidePicker
-            case "d": return .toggleDetail
             case "g": return .cycleGrouping
             case "o": return .cycleSort
             case "b": return .toggleBacklog

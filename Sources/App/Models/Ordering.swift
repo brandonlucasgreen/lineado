@@ -246,9 +246,14 @@ enum Ordering {
     /// was cut: it needed a cross-team ordering rule with no correct answer, and
     /// it merged states whose meanings diverge.
     ///
-    /// Order is `type` lifecycle, then `position` within the team, then team key,
-    /// then name — the last two only to break ties, so two teams' states never
-    /// land in an order that depends on dictionary iteration.
+    /// Buckets run **closest to done first**: In Review, then In Progress, then
+    /// To Do, then Triage, with Backlog always at the floor (Brandon,
+    /// 2026-10-20). Within a type, `position` runs *descending* for the same
+    /// reason — Linear numbers In Progress below In Review, so descending puts
+    /// the later stage on top.
+    ///
+    /// Team key and name break ties, so two teams' states never land in an
+    /// order that depends on dictionary iteration.
     private nonisolated static func groupByStatus(
         _ issues: [Issue], sortBy: SortBy, ascending: Bool
     ) -> [IssueSection] {
@@ -260,11 +265,11 @@ enum Ordering {
                 return (first.state, first.team, rows)
             }
             .sorted { lhs, rhs in
-                if lhs.state.type.lifecycleRank != rhs.state.type.lifecycleRank {
-                    return lhs.state.type.lifecycleRank < rhs.state.type.lifecycleRank
+                if lhs.state.type.groupRank != rhs.state.type.groupRank {
+                    return lhs.state.type.groupRank < rhs.state.type.groupRank
                 }
                 if lhs.state.position != rhs.state.position {
-                    return lhs.state.position < rhs.state.position
+                    return lhs.state.position > rhs.state.position
                 }
                 if lhs.team.key != rhs.team.key { return lhs.team.key < rhs.team.key }
                 return lhs.state.name < rhs.state.name

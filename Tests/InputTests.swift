@@ -127,7 +127,7 @@ struct KeyMapTests {
     func verbs() {
         #expect(KeyMap.action(for: .character("s")) == .showStatusPicker)
         #expect(KeyMap.action(for: .character("p")) == .showPriorityPicker)
-        #expect(KeyMap.action(for: .character("t")) == .showDuePicker)
+        #expect(KeyMap.action(for: .character("d")) == .showDuePicker)
         #expect(KeyMap.action(for: .character("c")) == .showCommentComposer)
         #expect(KeyMap.action(for: .character("e")) == .complete)
         #expect(KeyMap.action(for: .character("h")) == .showHidePicker)
@@ -187,6 +187,54 @@ struct KeyMapTests {
         #expect(KeyMap.action(for: .space) == .toggleDetail)
         #expect(KeyMap.action(for: .left) == .cycleTeam(-1))
         #expect(KeyMap.action(for: .right) == .cycleTeam(1))
+        #expect(KeyMap.action(for: .character("?")) == .showAllShortcuts)
+    }
+
+    /// The audit, as a test. `D` and `space` both expanded the detail until
+    /// 2026-10-20, which is the kind of thing a reader of the switch statement
+    /// does not notice and a reader of this list cannot miss.
+    @Test("No two bindings produce the same action")
+    func everyBindingIsUnique() {
+        let keys: [(KeyInput, KeyModifiers)] = [
+            (.up, []), (.down, []), (.left, []), (.right, []),
+            (.up, .option), (.down, .option),
+            (.enter, []), (.space, []), (.escape, []),
+            (.character("?"), []),
+            (.character("s"), []), (.character("p"), []), (.character("d"), []),
+            (.character("c"), []), (.character("e"), []), (.character("h"), []),
+            (.character("g"), []), (.character("o"), []), (.character("b"), []),
+            (.character("z"), .command), (.character("c"), .command),
+            (.character("c"), [.command, .shift]), (.character("r"), .command),
+            (.character("f"), .command), (.character("0"), .command),
+        ]
+
+        var seen: [PanelAction: (KeyInput, KeyModifiers)] = [:]
+        for (key, modifiers) in keys {
+            guard let action = KeyMap.action(for: key, modifiers: modifiers) else {
+                Testing.Issue.record("\(key) has no action but was listed as a binding")
+                continue
+            }
+            if let existing = seen[action] {
+                Testing.Issue.record("\(key) and \(existing.0) both produce \(action)")
+            }
+            seen[action] = (key, modifiers)
+        }
+    }
+
+    /// `Character.isNumber` is true for Arabic-Indic and other non-ASCII
+    /// digits, which `Int(String(c))` cannot parse. The old code force-
+    /// unwrapped that, so a team shortcut on such a layout was a crash.
+    @Test("Non-ASCII digits do not crash the team shortcut")
+    func nonASCIIDigits() {
+        #expect(KeyMap.action(for: .character("٣"), modifiers: .command) == nil)
+        #expect(KeyMap.action(for: .character("3"), modifiers: .command) == .selectTeamIndex(2))
+    }
+
+    /// An undocumented second way to do one thing is a binding nobody can
+    /// learn and nobody can rely on.
+    @Test("Command-Return is not a silent alias for Return")
+    func noCommandReturnAlias() {
+        #expect(KeyMap.action(for: .enter, modifiers: .command) == nil)
     }
 }
 

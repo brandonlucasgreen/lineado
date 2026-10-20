@@ -181,7 +181,28 @@ enum StateType: Sendable, Hashable, Codable, CaseIterable {
     /// The three types the assigned-issues query filters out.
     static let terminal: [StateType] = [.completed, .canceled, .duplicate]
 
-    /// Lifecycle order, used to order status group buckets.
+    /// How status **group buckets** are ordered in the list: closest to done
+    /// first (Brandon, 2026-10-20).
+    ///
+    /// Deliberately not `lifecycleRank` reversed. A plain reversal would put
+    /// Triage *below* Backlog, and Backlog has to be the floor — it is the pile
+    /// you are explicitly not working on, so nothing should sit under it.
+    /// Triage sits just above it: unsorted, but still live.
+    var groupRank: Int {
+        switch self {
+        case .started: 0
+        case .unstarted: 1
+        case .triage: 2
+        case .backlog: 3
+        case .completed: 4
+        case .canceled: 5
+        case .duplicate: 6
+        case .unknown: 7
+        }
+    }
+
+    /// Linear's own lifecycle order. Used for the **status picker**, which
+    /// should read the way Linear reads, not the way the list is sorted.
     var lifecycleRank: Int {
         switch self {
         case .triage: 0

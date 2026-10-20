@@ -11,6 +11,8 @@ struct LineadoApp: App {
 
     init() {
         KeyboardShortcuts.onKeyUp(for: .togglePanel) {
+            PanelDiagnostic.record(
+                "hotkey fired; modifiers still down = \(NSEvent.modifierFlags.rawValue)")
             PanelToggler.toggle()
         }
 
