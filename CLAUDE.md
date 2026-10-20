@@ -37,8 +37,11 @@ scripts/verify-bundle.sh                 # audit a built .app
 scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
 ```
 
-Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 58 of them, all
-over pure functions — there is no UI test and no network test.
+Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 88 of them, all
+over pure functions — there is no UI test and no network test. When a rule
+lives in a view (the filter focus bands), the test reimplements the rule
+rather than instantiating `AppState`, which would need a Keychain and a run
+loop.
 
 ## Eleven things this codebase already learned
 
@@ -271,28 +274,25 @@ conversation first.
   identity when touching anything that reads the Keychain, and if a prompt
   appears tell the user to click **Deny**, never "Always Allow".
 
-## Still unverified
+## What has and has not run against a live key
 
-**Nothing in this repo has run against a live Linear API key.** The query shapes
-are built from Linear's published documentation and a live read through the
-Linear MCP; the mutations have never executed. Before trusting any write path:
+**The read path has**, against Brandon's real workspace: the poll lands, the
+issue count matches Linear's own view, the organization name comes back, and
+the single-key migration into the multi-workspace shape was verified end to
+end (key moved, legacy item removed, 53 issues loaded and stamped).
 
-1. Paste a personal API key into Settings.
-2. Watch one poll land, and check the issue count against Linear's own view.
+**The four writes have not.** Status, priority, due date and comment have never
+executed against Linear. Before trusting any of them:
+
+1. Exercise each write once, including **clearing** a due date — the one case
+   `JSONValue` exists for, and the one a `[String: String]` map could not
+   express.
+2. With two workspaces configured, write to an issue in **each**. Mutations
+   route through `service(for: issue)`; a write on the wrong workspace's key
+   would 404 or hit an unrelated issue. That routing is guarded but untested.
 3. Measure the complexity cost of the 100-node query — Linear rate-limits by
    complexity, not request count. The fallback is moving `labels` out of the
-   list query and fetching them with the detail.
-4. Exercise each of the four writes once, including **clearing** a due date,
-   which is the one the variables type exists for.
-5. With two workspaces configured, write to an issue in each. Mutations route
-   through `service(for: issue)`; a write on the wrong workspace's key would
-   404 or hit an unrelated issue. That routing is guarded but untested.
+   list query and fetching them with the detail. This is now N queries per
+   poll, one per workspace.
 
 Say plainly in any PR which of these you did and which you did not.
-
-### What has and has not run against a live key
-
-The read path has: Brandon's real workspace loads, with the right issues and
-counts. **The four writes still have not been exercised** — status, priority,
-due date and comment have never executed against Linear. Clearing a due date is
-the one to try first, since it is the case `JSONValue` exists for.
