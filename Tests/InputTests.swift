@@ -377,3 +377,42 @@ struct FilterFocusTests {
         #expect(KeyMap.action(for: .right) == .cycleFilterChip(1))
     }
 }
+
+// MARK: - Which filter the arrows cycle
+
+@Suite("Arrow target")
+struct ArrowTargetTests {
+    typealias Band = AppState.FilterFocus
+
+    /// Pure reimplementation of `AppState.focusedFilterName`, so the rule is
+    /// testable without a Keychain or a run loop.
+    static func target(band: Band, hasWorkspaces: Bool) -> String {
+        switch band {
+        case .workspaces: "workspace"
+        case .teams: "team"
+        case .list: hasWorkspaces ? "workspace" : "team"
+        }
+    }
+
+    /// Brandon, 2026-10-20: "if I'm focused on an issue and i key left/right,
+    /// that should switch workspace, not team." The coarse move is the one you
+    /// want without leaving the list; teams are reached by keying up.
+    @Test("From the list, arrows cycle workspace when there is more than one")
+    func listCyclesWorkspace() {
+        #expect(Self.target(band: .list, hasWorkspaces: true) == "workspace")
+    }
+
+    /// With one workspace that dimension does not exist, so teams are the top
+    /// level and the keys stay useful instead of going inert.
+    @Test("With one workspace, arrows from the list cycle team")
+    func listFallsBackToTeam() {
+        #expect(Self.target(band: .list, hasWorkspaces: false) == "team")
+    }
+
+    @Test("Inside a chip row, arrows cycle that row regardless")
+    func bandsAreExplicit() {
+        #expect(Self.target(band: .teams, hasWorkspaces: true) == "team")
+        #expect(Self.target(band: .workspaces, hasWorkspaces: true) == "workspace")
+        #expect(Self.target(band: .teams, hasWorkspaces: false) == "team")
+    }
+}

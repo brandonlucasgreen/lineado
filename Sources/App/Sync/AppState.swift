@@ -244,11 +244,32 @@ final class AppState {
         return true
     }
 
-    /// `←`/`→` act on whichever band has focus.
+    /// `←`/`→` act on whichever band has focus — and from the list, on the
+    /// **top-level** dimension (Brandon, 2026-10-20).
+    ///
+    /// With several workspaces that is the workspace: flipping accounts is the
+    /// coarse move you want without leaving the list, and teams are reached by
+    /// keying up into their row. With one workspace there is no workspace
+    /// dimension, so teams *are* the top level and `←`/`→` cycles those —
+    /// which keeps the keys useful rather than inert for the common case.
     func cycleFocusedFilter(by offset: Int) {
         switch filterFocus {
-        case .workspaces: cycleWorkspace(by: offset)
-        case .teams, .list: cycleTeam(by: offset)
+        case .workspaces:
+            cycleWorkspace(by: offset)
+        case .teams:
+            cycleTeam(by: offset)
+        case .list:
+            if showsWorkspaceDimension { cycleWorkspace(by: offset) } else { cycleTeam(by: offset) }
+        }
+    }
+
+    /// What `←`/`→` would cycle right now. Drives the hint bar, so the label
+    /// and the behaviour cannot drift apart.
+    var focusedFilterName: String {
+        switch filterFocus {
+        case .workspaces: "workspace"
+        case .teams: "team"
+        case .list: showsWorkspaceDimension ? "workspace" : "team"
         }
     }
 

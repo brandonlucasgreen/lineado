@@ -127,7 +127,7 @@ enum KeyMap {
     /// |---|---|---|
     /// | `↑` `↓` | move selection | |
     /// | `⌥↑` `⌥↓` | previous / next group | |
-    /// | `←` `→` | cycle the focused chip row | |
+    /// | `←` `→` | cycle the focused filter — workspace from the list | |
     /// | `↑` past the first row | step up into the chip rows | |
     /// | `⌘1`–`⌘9` | jump to team chip | |
     /// | `⏎` | open in Linear | |

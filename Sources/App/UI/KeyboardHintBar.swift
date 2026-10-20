@@ -84,7 +84,7 @@ struct KeyboardHintBar: View {
         // would be worse than showing nothing.
         if app.filterFocus != .list {
             return [
-                KeyHint("←", "→", app.filterFocus == .workspaces ? "workspace" : "team"),
+                KeyHint("←", "→", app.focusedFilterName),
                 KeyHint("↑", "↓", "move between rows"),
                 KeyHint("esc", "back to list"),
             ]
@@ -121,8 +121,9 @@ struct KeyboardHintBar: View {
             KeyHint("B", "backlog"),
             KeyHint("⌘0", "window"),
         ])
+        result.append(KeyHint("←", "→", app.focusedFilterName))
         if app.showsWorkspaceDimension {
-            result.append(KeyHint("↑", "filters"))
+            result.append(KeyHint("↑", "team filter"))
         }
         return result
     }
