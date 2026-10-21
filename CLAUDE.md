@@ -266,7 +266,7 @@ planning. Four writes only: status, priority, due date, comment.
 executable form. If a feature request needs it relaxed, that is a `PLAN.md`
 conversation first.
 
-## Three more macOS facts that shaped the app
+## Four more macOS facts that shaped the app
 
 - **A `.titled` panel reserves its title bar height** even with the bar hidden
   and transparent and `.fullSizeContentView` set — a band of dead space above
@@ -280,6 +280,14 @@ conversation first.
   closes the panel, activates the app, and orders the window front — on the
   *next* runloop turn, because the window does not exist until `openSettings()`
   returns.
+- **Reinstalling into `/Applications` likely triggers an App Management
+  prompt** — every `scripts/install-local.sh` run deletes and replaces the
+  bundle, and macOS asks whether the process doing it may modify an installed
+  app. Brandon saw a prompt on every "reload". Unconfirmed (the TCC log redacts
+  client names), but the Keychain was ruled out: the designated requirement is
+  the bundle id plus the Developer ID anchor, identical on every build. Don't
+  reinstall more often than a change needs, and never touch the user's security
+  settings to make it stop.
 - **Keychain ACLs are keyed to the code signature, not the bundle id.** An
   ad-hoc-signed debug build reading a key the Developer ID build saved prompts
   the user for their login keychain password. Build Release with the real
