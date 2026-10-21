@@ -90,8 +90,6 @@ the request being cancelled.
 
 ## Known gaps
 
-- **There is no app icon yet.** Releases show the generic one. Fine for early
-  users; required before any store submission.
 - **The feed lives at `raw.githubusercontent.com/.../main/appcast.xml`.** It can
   move to a custom domain later by shipping one update, through this feed, that
   names the new `SUFeedURL` — as long as this file keeps serving until

@@ -77,9 +77,10 @@ licensing, no CLI, no Mail, no Journal.
 
 Checked in the code on 2026-10-20, not inferred:
 
-- **There is no app icon.** `Sources/App/Resources/Assets.xcassets` has no
-  `AppIcon.appiconset`. An upload without one is rejected outright. A real icon
-  is design work, not code.
+- ~~**There is no app icon.**~~ Resolved 2026-10-21: a silver Fluent 👉 on
+  black, built on Inbox & Chill's grid (`docs/brand/`). `verify-bundle.sh` now
+  fails a bundle without it. An iOS version needs its own square, unmasked
+  1024px render — iOS applies its own corner mask.
 - **No `PrivacyInfo.xcprivacy`.** Required for both builds. `UserDefaults` is a
   "required reason" API (reason `CA92.1`); check whether anything reads file
   timestamps too.

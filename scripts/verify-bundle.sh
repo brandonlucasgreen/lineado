@@ -103,6 +103,16 @@ else
   note "SUPublicEDKey is empty — fine locally, FATAL for a release. Run scripts/sparkle-keys.sh"
 fi
 
+# The app icon. Missing it fails an App Store upload outright, and a direct
+# build without one ships the generic icon to every user — and nothing in the
+# build warns, because an empty asset catalog compiles fine.
+if [ -f "$APP/Contents/Resources/AppIcon.icns" ] \
+   && [ "$(plist_value CFBundleIconName)" = "AppIcon" ]; then
+  pass "app icon present (AppIcon.icns, CFBundleIconName = AppIcon)"
+else
+  fail "no app icon in the bundle — check Assets.xcassets/AppIcon.appiconset"
+fi
+
 echo
 echo "Code signature"
 
