@@ -37,7 +37,7 @@ scripts/verify-bundle.sh                 # audit a built .app
 scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
 ```
 
-Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 88 of them, all
+Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 95 of them, all
 over pure functions — there is no UI test and no network test. When a rule
 lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
@@ -227,6 +227,11 @@ recording a failure manually needs the full name: `Testing.Issue.record(...)`.
   place that decides what a key does. The panel and the menu bar both ask it, so
   they cannot drift apart. The whole map is documented in a table on `KeyMap`,
   and a test fails if two bindings produce the same action.
+- `KeyMap.bindings` — the **only** list of keys the UI advertises. The hint bar
+  and the full shortcut list render from it, and `advertisedBindingsResolve`
+  pushes every entry through the real resolver. Never hand-write a key label
+  anywhere else: the hint bar once did, the audit moved due date from `T` to
+  `D`, and the bar went on advertising `T` — which typed into the filter.
 - `UI/MenuBarController.swift` — owns the `NSStatusItem` and the `NSPanel`.
   There is no `MenuBarExtra` scene; see trap 8.
 - `Support/LoginItem.swift` — Open at Login via `SMAppService`. Three states,
@@ -288,12 +293,14 @@ issue count matches Linear's own view, the organization name comes back, and
 the single-key migration into the multi-workspace shape was verified end to
 end (key moved, legacy item removed, 53 issues loaded and stamped).
 
-**The four writes have not.** Status, priority, due date and comment have never
-executed against Linear. Before trusting any of them:
+**One write has**: clearing a due date, confirmed by Brandon 2026-10-20. That
+is the case `JSONValue` exists for — an explicit JSON `null`, which a
+`[String: String]` map could not express — so the variables encoding is proven.
 
-1. Exercise each write once, including **clearing** a due date — the one case
-   `JSONValue` exists for, and the one a `[String: String]` map could not
-   express.
+**Status, priority, setting a due date and comment have not.** Before trusting
+them:
+
+1. Exercise each remaining write once.
 2. With two workspaces configured, write to an issue in **each**. Mutations
    route through `service(for: issue)`; a write on the wrong workspace's key
    would 404 or hit an unrelated issue. That routing is guarded but untested.

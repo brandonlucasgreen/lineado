@@ -237,3 +237,102 @@ enum KeyMap {
         }
     }
 }
+
+// MARK: - The published bindings
+
+/// One binding, as the UI advertises it.
+///
+/// The hint bar and the full shortcut list both render from this table, and
+/// `KeyMapTests.advertisedBindingsResolve` asserts that every entry really
+/// does produce the action it claims through `KeyMap.action`.
+///
+/// **This exists because the UI lied.** The keyboard audit moved due date from
+/// `T` to `D`, and the hint bar — hand-written, with no connection to the
+/// resolver — went on advertising `T`. Pressing it typed into the filter.
+/// A hand-maintained second copy of a mapping drifts; the only fix is to stop
+/// having one.
+struct KeyBinding: Identifiable, Sendable {
+    enum Category: String, CaseIterable, Sendable {
+        case move = "Move"
+        case act = "Act"
+        case view = "View"
+        case copy = "Copy"
+    }
+
+    /// How the key is drawn, e.g. "⌘C" or "space".
+    let display: String
+    /// Short label for the hint bar.
+    let short: String
+    /// Longer label for the full list.
+    let long: String
+    let category: Category
+    /// Needs a selected issue to do anything.
+    let needsSelection: Bool
+    /// What it resolves to. Nil for bindings the panel handles outside KeyMap
+    /// (arrow keys whose meaning depends on focus).
+    let action: PanelAction?
+    /// The input KeyMap should resolve, when it is testable as one key.
+    let probe: (key: KeyInput, modifiers: KeyModifiers)?
+
+    var id: String { display + short }
+
+    init(_ display: String, _ short: String, _ long: String, _ category: Category,
+         needsSelection: Bool = false, action: PanelAction? = nil,
+         probe: (key: KeyInput, modifiers: KeyModifiers)? = nil) {
+        self.display = display
+        self.short = short
+        self.long = long
+        self.category = category
+        self.needsSelection = needsSelection
+        self.action = action
+        self.probe = probe
+    }
+}
+
+extension KeyMap {
+    /// Every binding the UI shows, in the order it shows them.
+    static let bindings: [KeyBinding] = [
+        .init("⏎", "open", "Open in Linear", .act, needsSelection: true,
+              action: .open, probe: (.enter, [])),
+        .init("E", "done", "Complete", .act, needsSelection: true,
+              action: .complete, probe: (.character("e"), [])),
+        .init("S", "status", "Status", .act, needsSelection: true,
+              action: .showStatusPicker, probe: (.character("s"), [])),
+        .init("P", "priority", "Priority", .act, needsSelection: true,
+              action: .showPriorityPicker, probe: (.character("p"), [])),
+        .init("D", "due", "Due date", .act, needsSelection: true,
+              action: .showDuePicker, probe: (.character("d"), [])),
+        .init("C", "comment", "Comment", .act, needsSelection: true,
+              action: .showCommentComposer, probe: (.character("c"), [])),
+        .init("H", "hide", "Hide until later", .act, needsSelection: true,
+              action: .showHidePicker, probe: (.character("h"), [])),
+        .init("⌘Z", "undo", "Undo", .act, action: .undo,
+              probe: (.character("z"), .command)),
+        .init("space", "detail", "Expand detail", .view, needsSelection: true,
+              action: .toggleDetail, probe: (.space, [])),
+        .init("G", "group", "Cycle grouping", .view,
+              action: .cycleGrouping, probe: (.character("g"), [])),
+        .init("O", "sort", "Cycle sorting", .view,
+              action: .cycleSort, probe: (.character("o"), [])),
+        .init("B", "backlog", "Show / hide backlog", .view,
+              action: .toggleBacklog, probe: (.character("b"), [])),
+        .init("⌘F", "filter", "Filter", .view,
+              action: .focusSearch, probe: (.character("f"), .command)),
+        .init("⌘R", "refresh", "Refresh", .view,
+              action: .refresh, probe: (.character("r"), .command)),
+        .init("⌘0", "window", "Open in a window", .view,
+              action: .openWindow, probe: (.character("0"), .command)),
+        .init("?", "shortcuts", "All shortcuts", .view,
+              action: .showAllShortcuts, probe: (.character("?"), [])),
+        .init("⌘C", "copy", "Copy link", .copy, needsSelection: true,
+              action: .copyLink, probe: (.character("c"), .command)),
+        .init("⇧⌘C", "branch", "Copy branch name", .copy, needsSelection: true,
+              action: .copyBranchName, probe: (.character("c"), [.command, .shift])),
+        // Arrow keys resolve against the focused band, so they carry no fixed
+        // action to assert — the band walk has its own tests.
+        .init("↑ ↓", "move", "Move selection", .move),
+        .init("⌥↑ ⌥↓", "group", "Previous / next group", .move),
+        .init("← →", "filter", "Cycle the focused filter", .move),
+        .init("⌘1…⌘9", "team", "Jump to a team", .move),
+    ]
+}

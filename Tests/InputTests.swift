@@ -416,3 +416,48 @@ struct ArrowTargetTests {
         #expect(Self.target(band: .teams, hasWorkspaces: false) == "team")
     }
 }
+
+// MARK: - The UI cannot advertise a key that does something else
+
+@Suite("Advertised bindings")
+struct AdvertisedBindingTests {
+
+    /// **The test that would have caught the `T` bug.** The audit moved due
+    /// date to `D`; the hint bar, hand-written, kept advertising `T`, and
+    /// pressing it typed into the filter. Every binding the UI shows now comes
+    /// from `KeyMap.bindings`, and this walks the whole table through the real
+    /// resolver.
+    @Test("Every advertised binding resolves to the action it claims")
+    func advertisedBindingsResolve() {
+        for binding in KeyMap.bindings {
+            guard let probe = binding.probe, let claimed = binding.action else { continue }
+            let resolved = KeyMap.action(for: probe.key, modifiers: probe.modifiers)
+            #expect(resolved == claimed,
+                    "\(binding.display) is advertised as \(claimed) but resolves to \(String(describing: resolved))")
+        }
+    }
+
+    /// The specific regression, named, so it reads clearly if it ever returns.
+    @Test("Due date is D, and T is not bound to it")
+    func dueDateIsD() {
+        #expect(KeyMap.action(for: .character("d")) == .showDuePicker)
+        #expect(KeyMap.action(for: .character("t")) != .showDuePicker)
+        #expect(KeyMap.bindings.contains { $0.display == "D" && $0.action == .showDuePicker })
+        #expect(!KeyMap.bindings.contains { $0.display == "T" })
+    }
+
+    @Test("No key is advertised twice")
+    func noDuplicateDisplays() {
+        let displays = KeyMap.bindings.map(\.display)
+        #expect(Set(displays).count == displays.count)
+    }
+
+    /// A binding with an action but no probe would skip the resolver check
+    /// silently, which is the drift this table exists to stop.
+    @Test("Every binding with an action can be checked against the resolver")
+    func actionsAreProbed() {
+        for binding in KeyMap.bindings where binding.action != nil {
+            #expect(binding.probe != nil, "\(binding.display) has an action but no probe")
+        }
+    }
+}

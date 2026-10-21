@@ -24,26 +24,6 @@ struct KeyCap: View {
     }
 }
 
-/// A key and what it does.
-struct KeyHint: Identifiable {
-    let id = UUID()
-    let keys: [String]
-    let label: String
-
-    // Two explicit inits rather than `(_ keys: String..., _ label: String)`:
-    // Swift requires a label on any parameter following a variadic one, which
-    // would have put `label:` at every call site for no benefit.
-    init(_ key: String, _ label: String) {
-        self.keys = [key]
-        self.label = label
-    }
-
-    init(_ firstKey: String, _ secondKey: String, _ label: String) {
-        self.keys = [firstKey, secondKey]
-        self.label = label
-    }
-}
-
 /// The strip of shortcuts along the bottom of the panel.
 ///
 /// This app is keyboard-first and most of its verbs are single letters, which
@@ -62,10 +42,10 @@ struct KeyboardHintBar: View {
             HStack(spacing: 10) {
                 ForEach(hints) { hint in
                     HStack(spacing: 3) {
-                        ForEach(Array(hint.keys.enumerated()), id: \.offset) { _, key in
-                            KeyCap(key: key)
+                        ForEach(hint.display.split(separator: " "), id: \.self) { key in
+                            KeyCap(key: String(key))
                         }
-                        Text(hint.label)
+                        Text(hint.short)
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                             .fixedSize()
@@ -79,107 +59,61 @@ struct KeyboardHintBar: View {
         .background(Color.primary.opacity(0.03))
     }
 
-    private var hints: [KeyHint] {
-        // In the chip rows the issue verbs are all inert, so advertising them
+    /// Derived from `KeyMap.bindings`, never hand-written.
+    ///
+    /// The previous version listed its own keys and drifted: the audit moved
+    /// due date to `D` and this bar went on advertising `T`, so pressing the
+    /// advertised key typed into the filter instead.
+    private var hints: [KeyBinding] {
+        // In the chip rows the issue verbs are inert, so advertising them
         // would be worse than showing nothing.
         if app.filterFocus != .list {
             return [
-                KeyHint("←", "→", app.focusedFilterName),
-                KeyHint("↑", "↓", "move between rows"),
-                KeyHint("esc", "back to list"),
-            ]
-        }
-        guard app.selectedIssue != nil else {
-            // Nothing selected: the only useful keys are the ones that change
-            // what the list shows.
-            return [
-                KeyHint("↑", "↓", "move"),
-                KeyHint("G", "group"),
-                KeyHint("O", "sort"),
-                KeyHint("B", "backlog"),
-                KeyHint("⌘R", "refresh"),
+                KeyBinding("← →", app.focusedFilterName, "", .move),
+                KeyBinding("↑ ↓", "move between rows", "", .move),
+                KeyBinding("esc", "back to list", "", .move),
             ]
         }
 
-        var result: [KeyHint] = [
-            KeyHint("⏎", "open"),
-            KeyHint("E", "done"),
-            KeyHint("S", "status"),
-            KeyHint("P", "priority"),
-            KeyHint("T", "due"),
-            KeyHint("C", "comment"),
-            KeyHint("space", "detail"),
-            KeyHint("H", "hide"),
-        ]
-        // Undo only appears when there is something to undo, and says what.
-        if let undo = app.undoLabel {
-            result.insert(KeyHint("⌘Z", "undo \(undo.lowercased())"), at: 0)
+        let hasSelection = app.selectedIssue != nil
+        var result = KeyMap.bindings.filter { binding in
+            guard binding.category == .act || binding.category == .view else { return false }
+            if binding.needsSelection && !hasSelection { return false }
+            // Undo advertises itself only when there is something to undo.
+            if binding.action == .undo { return app.undoLabel != nil }
+            return true
         }
-        result.append(contentsOf: [
-            KeyHint("G", "group"),
-            KeyHint("O", "sort"),
-            KeyHint("B", "backlog"),
-            KeyHint("⌘0", "window"),
-        ])
-        result.append(KeyHint("←", "→", app.focusedFilterName))
+
+        result.append(KeyBinding("← →", app.focusedFilterName, "", .move))
         if app.showsWorkspaceDimension {
-            result.append(KeyHint("↑", "team filter"))
+            result.append(KeyBinding("↑", "team filter", "", .move))
         }
         return result
     }
 }
 
-/// The full list, for the "..." menu — everything the strip cannot fit.
+/// The full list, for the "..." menu — the same table, grouped.
 struct AllShortcutsView: View {
-    private let groups: [(String, [KeyHint])] = [
-        ("Move", [
-            KeyHint("↑", "↓", "Move selection"),
-            KeyHint("⌥↑", "⌥↓", "Previous / next group"),
-            KeyHint("←", "→", "Cycle team"),
-            KeyHint("⌘1", "…", "Jump to team"),
-        ]),
-        ("Act", [
-            KeyHint("⏎", "Open in Linear"),
-            KeyHint("E", "Complete"),
-            KeyHint("S", "Status"),
-            KeyHint("P", "Priority"),
-            KeyHint("T", "Due date"),
-            KeyHint("C", "Comment"),
-            KeyHint("H", "Hide until later"),
-            KeyHint("⌘Z", "Undo"),
-        ]),
-        ("View", [
-            KeyHint("space", "Expand detail"),
-            KeyHint("G", "Cycle grouping"),
-            KeyHint("O", "Cycle sorting"),
-            KeyHint("B", "Show / hide backlog"),
-            KeyHint("⌘F", "Filter"),
-            KeyHint("⌘R", "Refresh"),
-            KeyHint("⌘0", "Open in a window"),
-        ]),
-        ("Copy", [
-            KeyHint("⌘C", "Copy link"),
-            KeyHint("⇧⌘C", "Copy branch name"),
-        ]),
-    ]
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(group.0)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        ForEach(group.1) { hint in
-                            HStack(spacing: 4) {
-                                ForEach(Array(hint.keys.enumerated()), id: \.offset) { _, key in
-                                    KeyCap(key: key)
+                ForEach(KeyBinding.Category.allCases, id: \.self) { category in
+                    let bindings = KeyMap.bindings.filter { $0.category == category }
+                    if !bindings.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(category.rawValue)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            ForEach(bindings) { binding in
+                                HStack(spacing: 4) {
+                                    ForEach(binding.display.split(separator: " "), id: \.self) { key in
+                                        KeyCap(key: String(key))
+                                    }
+                                    Text(binding.long.isEmpty ? binding.short : binding.long)
+                                        .font(.system(size: 11))
+                                    Spacer()
                                 }
-                                Text(hint.label)
-                                    .font(.system(size: 11))
-                                Spacer()
                             }
                         }
                     }
@@ -187,6 +121,6 @@ struct AllShortcutsView: View {
             }
             .padding(16)
         }
-        .frame(width: 320, height: 420)
+        .frame(width: 320, height: 440)
     }
 }
