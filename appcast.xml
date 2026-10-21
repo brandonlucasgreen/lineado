@@ -3,6 +3,16 @@
     <channel>
         <title>Lineado</title>
         <item>
+            <title>0.1.2</title>
+            <pubDate>Wed, 21 Oct 2026 09:28:14 -0400</pubDate>
+            <link>https://github.com/brandonlucasgreen/lineado</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/brandonlucasgreen/lineado/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/brandonlucasgreen/lineado/releases/download/v0.1.2/Lineado.zip" length="2993897" type="application/octet-stream" sparkle:edSignature="hsCoYxhetgEm12jMsOI3DPb6ElUeS9j2Q1JMl4l8+soje3Kwfx73MmowVFZ+4QxCoPifY1qJD3JS6U9cFL6cAg=="/>
+        </item>
+        <item>
             <title>0.1.1</title>
             <pubDate>Wed, 21 Oct 2026 08:54:13 -0400</pubDate>
             <link>https://github.com/brandonlucasgreen/lineado</link>
