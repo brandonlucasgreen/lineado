@@ -43,13 +43,13 @@ scripts/sparkle-keys.sh                  # one-time; already done — key accoun
 Releasing is documented in `docs/releasing.md`. The scripts are ported from
 Inbox & Chill and keep its comments, which explain traps hit there first.
 
-Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 95 of them, all
+Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 99 of them, all
 over pure functions — there is no UI test and no network test. When a rule
 lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
 loop.
 
-## Fifteen things this codebase already learned
+## Sixteen things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -245,6 +245,22 @@ generating into the default could have collided with I&C's real key. Every
 `generate_keys`, `sign_update` and `generate_appcast` call passes
 `--account "$SPARKLE_ACCOUNT"`. Reading the private key needs the user's Keychain
 approval, which a non-interactive agent shell cannot give: that step is theirs.
+
+### 16. A build script with no declared input can race the phase it depends on
+
+The Sparkle re-sign phase ran *while* Xcode was still copying
+`Sparkle.framework` into the app, and codesign failed with "bundle format
+unrecognized, invalid, or unsuitable". Only incremental builds lost the race;
+clean builds — every release, and CI — won it, so it hid until a routine test
+run. A run-script phase with no inputs has no dependency edge to anything, so
+Xcode is free to run it concurrently. The phase now declares the embedded
+framework as an `inputFile` (plus `basedOnDependencyAnalysis: false`), and the
+logs show the copy finishing first. Inbox & Chill's identical step declares no
+input either.
+
+When checking a build, grep for `** BUILD FAILED **` / `** TEST FAILED **`, not
+just compiler errors: a script-phase failure has no `error:` line and a
+compiler-error grep reports a failed build as clean.
 
 ## Architecture
 

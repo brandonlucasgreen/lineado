@@ -148,6 +148,14 @@ struct GeneralSettings: View {
             }
 
             Section {
+                Toggle("Show task count in the menu bar", isOn: $app.preferences.showsMenuBarCount)
+            } footer: {
+                Text("The hand stays filled while anything is assigned, so you can still tell at a glance.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Open at login", isOn: Binding(
                     get: { loginItem.state.isOn },
                     set: { loginItem.setEnabled($0) }))

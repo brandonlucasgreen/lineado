@@ -461,3 +461,43 @@ struct AdvertisedBindingTests {
         }
     }
 }
+
+// MARK: - Menu bar count
+
+@Suite("Menu bar count")
+struct MenuBarCountTests {
+
+    @Test("The count shows beside the glyph when enabled")
+    func showsCount() {
+        #expect(MenuBarController.title(count: 54, showsCount: true) == " 54")
+    }
+
+    @Test("Turning the setting off hides the number")
+    func hidesCount() {
+        #expect(MenuBarController.title(count: 54, showsCount: false) == "")
+    }
+
+    /// Zero is hidden either way: the hollow hand already says "nothing".
+    @Test("Zero never shows a number")
+    func zeroIsHidden() {
+        #expect(MenuBarController.title(count: 0, showsCount: true) == "")
+        #expect(MenuBarController.title(count: 0, showsCount: false) == "")
+    }
+
+    /// `UserDefaults.bool(forKey:)` returns false for a missing key. Reading it
+    /// naively would switch the count off for everyone upgrading from 0.1.0,
+    /// which never wrote this key.
+    @Test("An install that never saved the setting keeps the count on")
+    func upgradeDefaultsToOn() throws {
+        let suite = "lineado.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(Preferences.load(from: defaults).showsMenuBarCount == true)
+
+        var prefs = Preferences.load(from: defaults)
+        prefs.showsMenuBarCount = false
+        prefs.save(to: defaults)
+        #expect(Preferences.load(from: defaults).showsMenuBarCount == false)
+    }
+}

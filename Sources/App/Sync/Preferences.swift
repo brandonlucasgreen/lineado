@@ -14,6 +14,9 @@ struct Preferences: Sendable, Equatable {
     var teamID: String?
     /// Nil means every workspace.
     var workspaceID: String?
+    /// The number beside the menu bar glyph. On by default; the glyph alone
+    /// still shows whether anything is waiting (filled vs hollow).
+    var showsMenuBarCount: Bool = true
     /// Seconds between polls. Linear's personal-key budget is ~1,500 req/hour;
     /// 60s spends ~60 of it.
     var pollInterval: TimeInterval = 60
@@ -25,6 +28,7 @@ struct Preferences: Sendable, Equatable {
         static let showsBacklog = "showsBacklog"
         static let teamID = "teamID"
         static let workspaceID = "workspaceID"
+        static let showsMenuBarCount = "showsMenuBarCount"
         static let pollInterval = "pollInterval"
     }
 
@@ -42,6 +46,11 @@ struct Preferences: Sendable, Equatable {
         prefs.showsBacklog = defaults.bool(forKey: Key.showsBacklog)
         prefs.teamID = defaults.string(forKey: Key.teamID)
         prefs.workspaceID = defaults.string(forKey: Key.workspaceID)
+        // `bool(forKey:)` is false for a missing key, which would turn the
+        // count off for everyone upgrading from a build without this setting.
+        if defaults.object(forKey: Key.showsMenuBarCount) != nil {
+            prefs.showsMenuBarCount = defaults.bool(forKey: Key.showsMenuBarCount)
+        }
         let interval = defaults.double(forKey: Key.pollInterval)
         if interval >= 15 { prefs.pollInterval = interval }
         return prefs
@@ -54,6 +63,7 @@ struct Preferences: Sendable, Equatable {
         defaults.set(showsBacklog, forKey: Key.showsBacklog)
         defaults.set(teamID, forKey: Key.teamID)
         defaults.set(workspaceID, forKey: Key.workspaceID)
+        defaults.set(showsMenuBarCount, forKey: Key.showsMenuBarCount)
         defaults.set(pollInterval, forKey: Key.pollInterval)
     }
 }

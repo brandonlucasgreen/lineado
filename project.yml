@@ -70,6 +70,18 @@ targets:
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
     postBuildScripts:
       - name: Re-sign Sparkle's nested helpers
+        # The embedded framework is declared as this script's INPUT so Xcode
+        # orders it after the Embed Frameworks copy. Without it the two raced:
+        # an incremental build ran this script while Sparkle.framework was still
+        # being copied in, and codesign failed with "bundle format unrecognized,
+        # invalid, or unsuitable" (2026-10-21). Clean builds — every release —
+        # happened to win the race, which is why it hid. Inbox & Chill's copy of
+        # this step declares no input either.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Sparkle.framework
+        # No outputs to compare, so without this Xcode would warn and might
+        # skip it; it must run on every build that re-embeds the framework.
+        basedOnDependencyAnalysis: false
         # Ported from Inbox & Chill (its CLAUDE.md, trap 2), which hit this
         # first. Sparkle.framework carries Autoupdate, Updater.app and two
         # XPC services, and Xcode's embed step re-signs only the framework

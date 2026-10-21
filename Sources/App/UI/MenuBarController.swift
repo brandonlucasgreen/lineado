@@ -67,6 +67,9 @@ final class MenuBarController: NSObject {
         withObservationTracking {
             _ = appState.orderedIssues.count
             _ = appState.overdueCount
+            // Read here so flipping the setting redraws at once, not at the
+            // next poll.
+            _ = appState.preferences.showsMenuBarCount
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.updateButton()
@@ -75,22 +78,51 @@ final class MenuBarController: NSObject {
         }
     }
 
+    /// The glyph's point size, sized against Inbox & Chill's peace hand.
+    ///
+    /// Measured 2026-10-21 by rasterising both and taking the bounding box of
+    /// drawn pixels. The default-size `hand.point.right` drew 13.5 × 10.5pt
+    /// against the peace hand's 12.5 × 16pt — about 30% less ink, which is why
+    /// it read as small beside its neighbours. A pointing-right hand is wide and
+    /// short, so matching the peace hand's *height* would make it 21pt wide.
+    /// At 15pt its longest side is 16pt and its drawn area is 16 × 12.5 =
+    /// 200 sq pt — the same visual weight as the peace hand, turned sideways.
+    static let glyphPointSize: CGFloat = 15
+
+    /// What the status item reads, as a pure function so it can be tested.
+    /// Hidden at zero regardless — the hollow hand already says "nothing".
+    nonisolated static func title(count: Int, showsCount: Bool) -> String {
+        guard showsCount, count > 0 else { return "" }
+        return " \(count)"
+    }
+
     private func updateButton() {
         guard let button = statusItem?.button else { return }
         let count = appState.orderedIssues.count
         // Solid when something is waiting, hollow only at zero — the read
         // Inbox & Chill's glyphs carry, so the two apps look like a pair.
+        // Independent of whether the count is shown: the glyph still answers
+        // "is there anything?" when the number is turned off.
         let symbol = count == 0 ? "hand.point.right" : "hand.point.right.fill"
+        // The count stays in the accessibility description even when it is
+        // hidden from the bar: hiding it is a visual preference, and VoiceOver
+        // users should not lose the information because of it.
         let description = count == 0
             ? "Lineado: nothing assigned"
             : (appState.overdueCount > 0
                 ? "Lineado: \(count) tasks, \(appState.overdueCount) overdue"
                 : "Lineado: \(count) tasks")
 
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        let config = NSImage.SymbolConfiguration(pointSize: Self.glyphPointSize, weight: .regular)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)?
+            .withSymbolConfiguration(config)
         button.image?.isTemplate = true
-        button.imagePosition = .imageLeading
-        button.title = count == 0 ? "" : " \(count)"
+
+        let title = Self.title(count: count, showsCount: appState.preferences.showsMenuBarCount)
+        button.title = title
+        // `.imageLeading` with an empty title still reserves space for text,
+        // which leaves the glyph off-centre in a wider-than-needed item.
+        button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
     }
 
     // MARK: Opening and closing
