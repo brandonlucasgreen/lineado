@@ -34,8 +34,14 @@ xcodebuild -project Lineado.xcodeproj -scheme Lineado -configuration Debug test
 scripts/check-shell.sh                   # what CI runs on scripts/
 scripts/install-local.sh                 # Release → /Applications → launch
 scripts/verify-bundle.sh                 # audit a built .app
-scripts/sparkle-keys.sh                  # ONE TIME: create the signing key
+scripts/notarize.sh --preflight-only     # every release check, no credentials, no submission
+scripts/release.sh --dry-run             # the release plan, changing nothing
+scripts/release.sh                       # notarize, tag, GitHub Release, appcast (docs/releasing.md)
+scripts/sparkle-keys.sh                  # one-time; already done — key account "lineado"
 ```
+
+Releasing is documented in `docs/releasing.md`. The scripts are ported from
+Inbox & Chill and keep its comments, which explain traps hit there first.
 
 Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 95 of them, all
 over pure functions — there is no UI test and no network test. When a rule
@@ -43,7 +49,7 @@ lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
 loop.
 
-## Thirteen things this codebase already learned
+## Fifteen things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -217,6 +223,28 @@ Design work read the real Linear workspace, and real issue titles and a project
 name were copied into `PLAN.md`, a model comment and a test as examples — then
 had to be scrubbed from history before the repo could go public. Keep the
 numbers and shapes; invent the names (`CORE-1234`, "Website Refresh").
+
+### 14. Notarization rejects three things a passing build hides
+
+The first `notarize.sh --preflight-only` failed on all three, every one of which
+Inbox & Chill had already hit: no secure timestamp, `get-task-allow` injected
+into the Release build, and Sparkle's four nested helpers left ad-hoc signed by
+Xcode's embed step. The build succeeds and `codesign --verify --deep` **passes**
+for all of them — an ad-hoc signature is still a valid one — which is why
+`verify-bundle.sh` missed the third: it checks that a signature is valid, not
+whose it is. `project.yml` now carries I&C's fixes (Release-only
+`OTHER_CODE_SIGN_FLAGS` and `CODE_SIGN_INJECT_BASE_ENTITLEMENTS`, and the
+inside-out re-sign phase), and the preflight is the regression guard.
+
+### 15. The Sparkle key has its own Keychain account
+
+Lineado signs with account `lineado`, not Sparkle's default. `generate_keys -p`
+reported no key in the default account even though Inbox & Chill ships signed
+updates — and a failed `-p` lookup does not prove a key is absent — so
+generating into the default could have collided with I&C's real key. Every
+`generate_keys`, `sign_update` and `generate_appcast` call passes
+`--account "$SPARKLE_ACCOUNT"`. Reading the private key needs the user's Keychain
+approval, which a non-interactive agent shell cannot give: that step is theirs.
 
 ## Architecture
 

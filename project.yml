@@ -15,7 +15,10 @@ packages:
   # scripts/notarize.sh preflights it. (Inbox & Chill, CLAUDE.md §Sparkle.)
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.9.6
+    # Exact, not `from:`. The signing tools in scripts/sparkle-tools.sh are
+    # pinned to the same version, and `from:` let the framework float to
+    # 2.10.0 while the tools stayed on 2.9.6. Bump both together.
+    exactVersion: 2.10.0
 
 settings:
   base:
@@ -52,6 +55,55 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The re-sign phase below writes into the built app bundle, which a
+        # sandboxed build script is not allowed to do.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+      configs:
+        Release:
+          # Xcode injects `get-task-allow` (a debugging entitlement) by
+          # default. Notarization rejects a Developer ID binary carrying it.
+          # Scoped to Release so a Debug build can still be debugged.
+          # Caught by `notarize.sh --preflight-only` before the first release.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          # Xcode signs local builds with `--timestamp=none`; notarization
+          # requires a secure timestamp. Same preflight caught it.
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+    postBuildScripts:
+      - name: Re-sign Sparkle's nested helpers
+        # Ported from Inbox & Chill (its CLAUDE.md, trap 2), which hit this
+        # first. Sparkle.framework carries Autoupdate, Updater.app and two
+        # XPC services, and Xcode's embed step re-signs only the framework
+        # bundle — leaving all four ad-hoc signed, with no team identifier,
+        # no hardened runtime and no timestamp. `codesign --verify --deep`
+        # still passes, so only notarization (or the preflight) objects.
+        #
+        # Signed inside-out, because sealing an inner item invalidates every
+        # seal around it. Xcode signs the app bundle after this phase, so the
+        # outermost seal is still Xcode's.
+        script: |
+          set -e
+          FRAMEWORK="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/Sparkle.framework"
+          [ -d "$FRAMEWORK" ] || exit 0
+
+          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-${CODE_SIGN_IDENTITY:--}}"
+          # The timestamp server is a network round trip, so only signed
+          # Release builds pay for it.
+          if [ "$IDENTITY" = "-" ] || [ "$CONFIGURATION" = "Debug" ]; then
+            STAMP="--timestamp=none"
+          else
+            STAMP="--timestamp"
+          fi
+
+          VERSION_DIR="$FRAMEWORK/Versions/Current"
+          for NESTED in \
+            "$VERSION_DIR/XPCServices/Downloader.xpc" \
+            "$VERSION_DIR/XPCServices/Installer.xpc" \
+            "$VERSION_DIR/Updater.app" \
+            "$VERSION_DIR/Autoupdate" ; do
+            [ -e "$NESTED" ] || continue
+            codesign --force --options runtime "$STAMP" --sign "$IDENTITY" "$NESTED"
+          done
+          codesign --force --options runtime "$STAMP" --sign "$IDENTITY" "$FRAMEWORK"
     info:
       path: Lineado-Info.plist
       properties:
@@ -73,24 +125,27 @@ targets:
         # keys it already knows and SUFeedURL is not one of them. Inbox & Chill
         # shipped a bundle with no feed URL that way, and nothing warned.
         #
-        # --- DELIBERATELY UNSET (Brandon, 2026-10-20) ---------------------
-        # The feed will live on a domain that is not bought yet, and there are
-        # no public updates planned for a while. SUFeedURL is effectively
-        # permanent — changing it after the first public release strands every
-        # existing install — so it stays a placeholder until the domain exists.
+        # The feed is a file in this repo, served raw from `main` — Inbox &
+        # Chill's arrangement exactly. No domain, no Pages; scripts/release.sh
+        # commits and pushes appcast.xml after each GitHub release.
         #
-        # The placeholder is not a URL on purpose. An empty string reads as a
-        # bug; a plausible-looking https:// URL is worse, because it would let
-        # a release ship pointing at a feed nobody owns. This value cannot be
-        # mistaken for either, and scripts/verify-bundle.sh --release FAILS on
-        # it, so the decision has to be made before a tag can be cut.
-        SUFeedURL: "UNSET-pending-domain"
-        # Both off until there is a real feed: with no URL and no key there is
-        # nothing to check, and a background check that can only fail is just a
-        # daily error nobody can act on.
-        SUEnableAutomaticChecks: false
+        # Moving to a custom domain later is possible: ship one update, via
+        # this feed, whose Info.plist names the new SUFeedURL, and keep this
+        # file serving until existing installs have taken it. (An earlier note
+        # here said changing the URL "strands every existing install"; that
+        # overstated it.)
+        SUFeedURL: https://raw.githubusercontent.com/brandonlucasgreen/lineado/main/appcast.xml
+        # Check daily without asking first; Sparkle still asks before
+        # installing anything. For early users, an update they never hear
+        # about is feedback that never arrives.
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
         SUEnableInstallerLauncherService: false
-        SUPublicEDKey: "" # filled by scripts/sparkle-keys.sh, one time
+        # The public half of Lineado's own EdDSA key (keychain account "lineado",
+        # created 2026-10-20 by scripts/sparkle-keys.sh). Public by design. The
+        # private half must never change: every installed build trusts only
+        # this key, so a new one would strand them all.
+        SUPublicEDKey: re/jkuLbS8yIQ3A52kzIYBTToG58SfWYYOtehwOUG3k=
 
   LineadoTests:
     type: bundle.unit-test
