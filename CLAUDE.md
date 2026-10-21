@@ -49,7 +49,7 @@ lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
 loop.
 
-## Eighteen things this codebase already learned
+## Twenty things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -284,6 +284,28 @@ Related, and measured the same day: **the order of window operations matters.**
 Closing the menu bar panel *before* opening Settings left the app with no key
 window when Settings appeared, so it opened unfocused. Open Settings while the
 panel still holds focus, then close the panel.
+
+### 19. Keys meant for one surface leak into others
+
+Three separate leaks, each confirmed by a probe on 2026-10-21:
+
+- **AppKit matches menu key equivalents before a focused text field.** A bare
+  `b` typed into the ⌘0 window's filter toggled Show Backlog instead of typing;
+  under a bare `E`, typing "e" would have completed a task in Linear. Every
+  shortcut in `LineadoCommands` now carries ⌘.
+- **Claiming a standard shortcut strips it from the standard item.** Copy Link
+  on ⌘C made SwiftUI remove ⌘C from Edit › Copy, so text could not be copied.
+- **A local `NSEvent` monitor sees every key in the app and outlives a hidden
+  window** — `onDisappear` does not fire on `orderOut`. The panel's monitor
+  acted in Settings and the main window. It now checks the event's window is
+  the visible panel.
+
+### 20. Ask before launching the app while Brandon is working
+
+Probe builds, `install-local.sh` and **`xcodebuild test`** (the tests are hosted
+in the app) all launch Lineado and take focus from whatever he is doing. A run
+of probes swallowed his typing and he had to stop it. Ask first, with how many
+launches; prefer checks that launch nothing.
 
 ## Architecture
 
