@@ -43,13 +43,13 @@ scripts/sparkle-keys.sh                  # one-time; already done — key accoun
 Releasing is documented in `docs/releasing.md`. The scripts are ported from
 Inbox & Chill and keep its comments, which explain traps hit there first.
 
-Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 99 of them, all
+Tests are Swift Testing (`@Test` / `#expect`), in `Tests/`. 104 of them, all
 over pure functions — there is no UI test and no network test. When a rule
 lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
 loop.
 
-## Sixteen things this codebase already learned
+## Eighteen things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -261,6 +261,29 @@ input either.
 When checking a build, grep for `** BUILD FAILED **` / `** TEST FAILED **`, not
 just compiler errors: a script-phase failure has no `error:` line and a
 compiler-error grep reports a failed build as clean.
+
+### 17. Undocumented AppKit selectors fail silently — probe, don't trust
+
+Two `NSApp.sendAction(Selector(("...")))` calls looked fine and did nothing on
+this macOS: `showSettingsWindow:` opened no Settings window (so the status
+item's right-click Settings… had never worked) and `newWindowForTab:` opened no
+window. Nothing logs, nothing throws. Found only by a probe build that called
+them and dumped `NSApp.windows`. Settings now triggers the app menu's own ⌘,
+item — found by key equivalent, not title, since SwiftUI owns its wiring. Both
+were App Store 2.5.1 risks besides.
+
+### 18. Don't disable a control on a status only the control can change
+
+0.1.1 greyed out Open at Login for good. A never-registered main app reported
+`SMAppService` status `.notFound`, the code mapped that to "unavailable" and
+disabled the toggle — and the toggle's `register()` call is the very thing that
+resolves `.notFound`. Map uncertain statuses to an actionable *off* and let the
+action's own error explain a real failure. `LoginItemRegressionTests` pins it.
+
+Related, and measured the same day: **the order of window operations matters.**
+Closing the menu bar panel *before* opening Settings left the app with no key
+window when Settings appeared, so it opened unfocused. Open Settings while the
+panel still holds focus, then close the panel.
 
 ## Architecture
 

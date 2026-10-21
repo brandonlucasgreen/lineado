@@ -24,13 +24,11 @@ final class LoginItem {
         case disabled
         /// Registered, but macOS is waiting on the user in System Settings.
         case requiresApproval
-        /// `SMAppService` could not find the app bundle — see `isEligible`.
-        case unavailable
 
         var isOn: Bool {
             switch self {
             case .enabled, .requiresApproval: true
-            case .disabled, .unavailable: false
+            case .disabled: false
             }
         }
     }
@@ -59,7 +57,15 @@ final class LoginItem {
         case .enabled: .enabled
         case .requiresApproval: .requiresApproval
         case .notRegistered: .disabled
-        case .notFound: .unavailable
+        // **Off, not unavailable.** A main app that has never been registered
+        // can report `.notFound` — Lineado 0.1.1 did, running normally from
+        // /Applications, on 2026-10-21. An earlier version mapped this to an
+        // "unavailable" state that disabled the toggle, which made `register()`
+        // — the call that resolves `.notFound` — impossible to reach. The
+        // toggle was greyed out for good. If registering genuinely cannot
+        // work, `register()` throws and the error is shown under the toggle;
+        // that is the honest place to learn it.
+        case .notFound: .disabled
         @unknown default: .disabled
         }
     }
@@ -96,6 +102,19 @@ final class LoginItem {
     /// moment the build directory is cleaned. Only an installed app is worth
     /// offering this for.
     var isEligible: Bool {
-        Bundle.main.bundlePath.hasPrefix("/Applications")
+        Self.isEligible(bundlePath: Bundle.main.bundlePath,
+                        homeDirectory: NSHomeDirectory())
+    }
+
+    /// Installed somewhere permanent, and not translocated.
+    ///
+    /// A quarantined app launched from where it was unzipped runs from a
+    /// randomised read-only copy under `/AppTranslocation/`, which vanishes on
+    /// quit — registering that path would register nothing. `~/Applications`
+    /// is as permanent as `/Applications` and is accepted too.
+    nonisolated static func isEligible(bundlePath: String, homeDirectory: String) -> Bool {
+        if bundlePath.contains("/AppTranslocation/") { return false }
+        return bundlePath.hasPrefix("/Applications/")
+            || bundlePath.hasPrefix(homeDirectory + "/Applications/")
     }
 }

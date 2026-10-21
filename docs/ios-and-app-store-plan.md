@@ -87,11 +87,11 @@ Checked in the code on 2026-10-20, not inferred:
 - **No `LSApplicationCategoryType` or `ITSAppUsesNonExemptEncryption`** in
   `project.yml`. Inbox & Chill's first upload was rejected for the category.
   Encryption is `NO` — the app only uses the system's HTTPS.
-- **Two private-selector strings** — a guideline 2.5.1 risk, and fragile in the
-  direct build too, so worth fixing regardless:
-  - `NSApp.sendAction(Selector(("showSettingsWindow:")))` in `PanelChrome.swift`
-  - `NSApp.sendAction(Selector(("newWindowForTab:")))` in
-    `MenuBarController.swift`
+- ~~**Two private-selector strings**~~ — resolved 2026-10-21. Probes showed
+  both were dead on this macOS anyway: `showSettingsWindow:` opened nothing,
+  so the status item's right-click Settings… never worked, and
+  `newWindowForTab:` opened no window. Settings now triggers the app menu's own
+  ⌘, item; the right-click *Open in Window* item is gone (⌘0 covers it).
 - **Sparkle must be compiled out** of the store build (guideline 2.4.5(vii):
   updates come from the store). `UpdateController` becomes a stub behind
   `#if !APP_STORE`, as in Inbox & Chill.

@@ -31,6 +31,7 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var outsideClickMonitor: Any?
+    private var keyWindowObserver: NSObjectProtocol?
     /// Whoever was frontmost when the panel opened, so Esc can hand the
     /// keyboard straight back to them.
     private var previousApp: NSRunningApplication?
@@ -45,7 +46,13 @@ final class MenuBarController: NSObject {
 
     // MARK: Setup
 
+    /// The installed controller, for the few AppKit routes (opening Settings)
+    /// that must close the panel but have no SwiftUI environment to read it
+    /// from. Weak: `AppDelegate` owns it.
+    static weak var shared: MenuBarController?
+
     func install() {
+        Self.shared = self
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked)
@@ -169,6 +176,7 @@ final class MenuBarController: NSObject {
         panel.makeKeyAndOrderFront(nil)
         statusItem?.button?.highlight(true)
         startOutsideClickMonitor()
+        startKeyWindowObserver()
     }
 
     /// Hides the panel. `restoringFocus` hands the keyboard back to whatever
@@ -183,6 +191,7 @@ final class MenuBarController: NSObject {
         panel?.orderOut(nil)
         statusItem?.button?.highlight(false)
         stopOutsideClickMonitor()
+        stopKeyWindowObserver()
 
         if restoringFocus,
            let previousApp,
@@ -261,6 +270,52 @@ final class MenuBarController: NSObject {
     // MARK: Click-away
 
     /// Closes the panel when you click outside it, the way a real menu does.
+    /// Closes the panel when another of Lineado's own windows comes forward.
+    ///
+    /// The click-away monitor only sees clicks in *other* apps, so opening
+    /// Settings left the panel floating above it, at menu level, covering the
+    /// window the user had just asked for (Brandon, 2026-10-21). Watching key
+    /// windows rather than patching the Settings button catches every route
+    /// at once: the footer's Settings…, ⌘, from the app menu, the status
+    /// item's right-click menu, and ⌘0's main window.
+    private func startKeyWindowObserver() {
+        guard keyWindowObserver == nil else { return }
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let window = note.object as? NSWindow else { return }
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                if Self.shouldYield(
+                    toKeyWindowIsPanel: window === panel,
+                    isTitled: window.styleMask.contains(.titled),
+                    isSheetOfPanel: window.sheetParent === panel
+                        || (panel.childWindows ?? []).contains(window)
+                ) {
+                    self.close()
+                }
+            }
+        }
+    }
+
+    private func stopKeyWindowObserver() {
+        if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
+        keyWindowObserver = nil
+    }
+
+    /// Whether the panel should get out of the way of a window that just
+    /// became key. Pure, so the rule is testable without a window server.
+    ///
+    /// Only **titled** windows count — Settings and the main window are titled;
+    /// the panel's own popovers (the shortcut list) are not, and closing the
+    /// panel under its own popover would be absurd. Sheets and child windows of
+    /// the panel are its own furniture too.
+    nonisolated static func shouldYield(
+        toKeyWindowIsPanel isPanel: Bool, isTitled: Bool, isSheetOfPanel: Bool
+    ) -> Bool {
+        !isPanel && isTitled && !isSheetOfPanel
+    }
+
     private func startOutsideClickMonitor() {
         guard outsideClickMonitor == nil else { return }
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -292,12 +347,12 @@ final class MenuBarController: NSObject {
         guard let button = statusItem?.button else { return }
 
         let menu = NSMenu()
-        for (title, action, key) in [
-            ("Refresh", #selector(refresh), "r"),
-            ("Open in Window", #selector(openWindow), "0"),
-        ] {
-            menu.addItem(withTitle: title, action: action, keyEquivalent: key).target = self
-        }
+        // No "Open in Window" here. It used `sendAction("newWindowForTab:")`,
+        // an undocumented selector a probe showed opening nothing on this
+        // macOS (2026-10-21), and no app-menu item opens that window to route
+        // through instead. ⌘0 from the panel opens it, via SwiftUI's own
+        // `openWindow`.
+        menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "r").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
             .target = self
@@ -309,14 +364,8 @@ final class MenuBarController: NSObject {
                    in: button)
     }
 
-    @objc private func openWindow() {
-        close()
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
-    }
-
     @objc private func refresh() { Task { await appState.refresh() } }
-    @objc private func openSettings() { SettingsWindow.openFromMenuBar() }
+    @objc private func openSettings() { SettingsWindow.open() }
     @objc private func quit() { NSApp.terminate(nil) }
 }
 

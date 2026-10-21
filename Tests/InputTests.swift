@@ -309,7 +309,7 @@ struct LoginItemTests {
         #expect(LoginItem.state(for: .enabled) == .enabled)
         #expect(LoginItem.state(for: .notRegistered) == .disabled)
         #expect(LoginItem.state(for: .requiresApproval) == .requiresApproval)
-        #expect(LoginItem.state(for: .notFound) == .unavailable)
+        #expect(LoginItem.state(for: .notFound) == .disabled)
     }
 
     /// The toggle shows "on" while awaiting approval, because the user *has*
@@ -320,7 +320,7 @@ struct LoginItemTests {
         #expect(LoginItem.State.requiresApproval.isOn)
         #expect(LoginItem.State.enabled.isOn)
         #expect(!LoginItem.State.disabled.isOn)
-        #expect(!LoginItem.State.unavailable.isOn)
+
     }
 }
 
@@ -499,5 +499,56 @@ struct MenuBarCountTests {
         prefs.showsMenuBarCount = false
         prefs.save(to: defaults)
         #expect(Preferences.load(from: defaults).showsMenuBarCount == false)
+    }
+}
+
+@Suite("Open at login, the 0.1.1 regression")
+struct LoginItemRegressionTests {
+
+    /// 0.1.1 greyed the toggle out for good: a never-registered app reported
+    /// `.notFound`, that disabled the toggle, and a disabled toggle can never
+    /// call `register()` — the one thing that resolves `.notFound`. The status
+    /// must map to something the user can act on.
+    @Test("Not found is an actionable off, never a dead end")
+    func notFoundIsActionable() {
+        let state = LoginItem.state(for: .notFound)
+        #expect(state == .disabled)
+        #expect(!state.isOn)
+    }
+
+    @Test("Installed copies are eligible, translocated ones are not")
+    func eligibility() {
+        let home = "/Users/someone"
+        #expect(LoginItem.isEligible(bundlePath: "/Applications/Lineado.app", homeDirectory: home))
+        #expect(LoginItem.isEligible(bundlePath: "/Users/someone/Applications/Lineado.app", homeDirectory: home))
+        #expect(!LoginItem.isEligible(
+            bundlePath: "/private/var/folders/x/AppTranslocation/ABC/d/Lineado.app", homeDirectory: home))
+        #expect(!LoginItem.isEligible(bundlePath: "/Users/someone/Downloads/Lineado.app", homeDirectory: home))
+        // A prefix match on "/Applications" alone would have accepted this.
+        #expect(!LoginItem.isEligible(bundlePath: "/ApplicationsBackup/Lineado.app", homeDirectory: home))
+    }
+}
+
+@Suite("Panel yields to Lineado's own windows")
+struct PanelYieldTests {
+
+    /// Brandon, 2026-10-21: opening Settings left the menu bar panel open and
+    /// covering it. The panel floats at menu level, so it must close itself.
+    @Test("Settings or the main window coming forward closes the panel")
+    func yieldsToTitledWindows() {
+        #expect(MenuBarController.shouldYield(toKeyWindowIsPanel: false, isTitled: true, isSheetOfPanel: false))
+    }
+
+    @Test("The panel becoming key does not close itself")
+    func notForItself() {
+        #expect(!MenuBarController.shouldYield(toKeyWindowIsPanel: true, isTitled: false, isSheetOfPanel: false))
+    }
+
+    /// The keyboard-shortcut list is a popover on the panel. Closing the panel
+    /// underneath its own popover would make that list impossible to open.
+    @Test("The panel's own popovers and sheets do not close it")
+    func notForItsOwnFurniture() {
+        #expect(!MenuBarController.shouldYield(toKeyWindowIsPanel: false, isTitled: false, isSheetOfPanel: false))
+        #expect(!MenuBarController.shouldYield(toKeyWindowIsPanel: false, isTitled: true, isSheetOfPanel: true))
     }
 }

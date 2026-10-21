@@ -159,7 +159,7 @@ struct GeneralSettings: View {
                 Toggle("Open at login", isOn: Binding(
                     get: { loginItem.state.isOn },
                     set: { loginItem.setEnabled($0) }))
-                    .disabled(!loginItem.isEligible || loginItem.state == .unavailable)
+                    .disabled(!loginItem.isEligible)
 
                 // Registration can succeed and still not run at login, because
                 // macOS parks the item awaiting approval. Saying so — and

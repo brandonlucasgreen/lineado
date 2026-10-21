@@ -242,7 +242,7 @@ struct FooterMenuItems: View {
 
         Divider()
         Button("All Keyboard Shortcuts…") { showsAllShortcuts = true }
-        Button("Settings…") { SettingsWindow.open(using: openSettings) }
+        Button("Settings…") { SettingsWindow.open(fallback: openSettings) }
         Button("Quit Lineado") { NSApp.terminate(nil) }
     }
 }
@@ -355,7 +355,7 @@ struct UnconfiguredView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Open Settings…") { SettingsWindow.open(using: openSettings) }
+            Button("Open Settings…") { SettingsWindow.open(fallback: openSettings) }
                 .controlSize(.small)
             Spacer()
         }
@@ -376,28 +376,61 @@ struct UnconfiguredView: View {
 /// not exist until `openSettings()` returns.
 @MainActor
 enum SettingsWindow {
-    static func open(using openSettings: OpenSettingsAction) {
-        openSettings()
-        bringToFront()
+    /// The one way Lineado opens Settings, from every entry point.
+    ///
+    /// Each step fixes a measured failure (2026-10-21):
+    ///
+    /// 1. **Trigger the app menu's own Settings… item**, whatever SwiftUI wired
+    ///    it to. The previous AppKit route, `sendAction("showSettingsWindow:")`,
+    ///    is an undocumented selector that does not exist on this macOS: a
+    ///    probe showed it opening nothing, so the status item's right-click
+    ///    Settings… had silently never worked. It was also an App Store 2.5.1
+    ///    risk. The menu item is found by its ⌘, key equivalent, not its title.
+    ///    Falls back to SwiftUI's `openSettings` when a caller has one.
+    /// 2. **Bring Settings to the front, then close the panel — in that
+    ///    order.** The panel floats at menu level and covered the Settings
+    ///    window it had just opened (Brandon's report). Closing it *first*
+    ///    was tried and measured worse: the app was left with no key window at
+    ///    the moment Settings appeared, so Settings opened unfocused. Opening
+    ///    while the panel still holds focus lets Settings take it, and the
+    ///    panel goes after.
+    static func open(fallback: OpenSettingsAction? = nil) {
+        if !performAppMenuSettingsItem() {
+            fallback?()
+        }
+        bringToFront(thenClosePanel: true)
     }
 
-    /// For the status item's right-click menu, which has no SwiftUI
-    /// environment to read `openSettings` from.
-    static func openFromMenuBar() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        bringToFront()
+    /// Returns false when no ⌘, item exists, so the caller can fall back.
+    @discardableResult
+    private static func performAppMenuSettingsItem() -> Bool {
+        guard let mainMenu = NSApp.mainMenu else { return false }
+        for top in mainMenu.items {
+            guard let submenu = top.submenu else { continue }
+            if let index = submenu.items.firstIndex(where: {
+                $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command
+            }) {
+                submenu.performActionForItem(at: index)
+                return true
+            }
+        }
+        return false
     }
 
-    private static func bringToFront() {
-
+    private static func bringToFront(thenClosePanel: Bool) {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
-            guard let window = settingsWindow else { return }
-            window.makeKeyAndOrderFront(nil)
-            // `orderFrontRegardless` is what gets it past the accessory app's
-            // window level; `makeKeyAndOrderFront` alone can still land behind.
-            window.orderFrontRegardless()
-            window.center()
+            if let window = settingsWindow {
+                window.makeKeyAndOrderFront(nil)
+                // `orderFrontRegardless` is what gets it past the accessory
+                // app's window level; `makeKeyAndOrderFront` alone can still
+                // land behind.
+                window.orderFrontRegardless()
+                window.center()
+            }
+            if thenClosePanel {
+                MenuBarController.shared?.close()
+            }
         }
     }
 
