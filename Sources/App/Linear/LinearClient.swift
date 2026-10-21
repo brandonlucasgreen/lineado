@@ -196,14 +196,20 @@ extension JSONDecoder {
     /// `.iso8601` alone rejects the fraction, which fails the whole poll.
     static let linear: JSONDecoder = {
         let decoder = JSONDecoder()
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
+        // `Date.ISO8601FormatStyle`, not `ISO8601DateFormatter`.
+        //
+        // The decoding strategy closure is `@Sendable`, so whatever it captures
+        // must be `Sendable`. `ISO8601DateFormatter` is a class that only newer
+        // SDKs mark `Sendable` — so this compiled locally and failed on CI's
+        // older `macos-15` toolchain with "implicit capture of 'plain' requires
+        // that 'ISO8601DateFormatter' conforms to 'Sendable'". The format style
+        // is a value type and `Sendable` on every SDK back to macOS 12.
+        let withFraction = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let plain = Date.ISO8601FormatStyle()
 
         decoder.dateDecodingStrategy = .custom { decoder in
             let raw = try decoder.singleValueContainer().decode(String.self)
-            if let date = withFraction.date(from: raw) ?? plain.date(from: raw) {
+            if let date = (try? withFraction.parse(raw)) ?? (try? plain.parse(raw)) {
                 return date
             }
             throw DecodingError.dataCorrupted(

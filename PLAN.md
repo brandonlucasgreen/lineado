@@ -3,7 +3,8 @@
 A native macOS menu bar app that turns the Linear issues assigned to you into a
 simple, orderable to-do list you can act on without leaving the menu bar.
 
-This file is the design source of truth. `CLAUDE.md` will be the operating
+This file is the design source of truth. The plan for iOS, widgets and the
+App Store is separate, in `docs/ios-and-app-store-plan.md`. `CLAUDE.md` will be the operating
 manual — the things that actually bit, and the conventions to keep.
 
 Sibling project: [Inbox & Chill](https://github.com/brandonlucasgreen/inbox-and-chill)

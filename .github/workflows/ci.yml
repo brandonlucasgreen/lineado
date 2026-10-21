@@ -15,7 +15,7 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Check scripts
@@ -24,7 +24,18 @@ jobs:
   build-and-test:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # The runner's default Xcode lags the one this app is developed on, and
+      # the gap has already broken the build once: a type that newer SDKs mark
+      # Sendable was not Sendable on the runner's, so code that compiled locally
+      # failed here. Picking the newest non-beta Xcode on the image narrows that
+      # gap, and printing it means the next mismatch is diagnosable from the log.
+      - name: Use the newest Xcode on the runner
+        run: |
+          latest="$(ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -1)"
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -32,18 +43,19 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
-      # CI never signs for real: no Developer ID certificate, no notary
-      # credentials and no Sparkle private key reach a runner. So a green run
-      # does NOT tell you a build is notarizable — only
-      # scripts/notarize.sh --preflight-only on a Mac can.
+      # Ad-hoc signed ("-"), not unsigned. CI never holds the Developer ID
+      # certificate, the notary credentials or the Sparkle key, so it cannot
+      # tell you a build is notarizable — that is still a Mac-only check. But
+      # an *unsigned* bundle fails the audit below outright, because it has no
+      # signature to verify and no entitlements to read. Ad-hoc gives both.
       - name: Build and test
         run: |
+          set -o pipefail
           xcodebuild -project Lineado.xcodeproj \
             -scheme Lineado -configuration Debug \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            test | xcpretty && exit ${PIPESTATUS[0]}
+            -derivedDataPath build/ci \
+            CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" \
+            test | xcpretty
 
       - name: Audit the built bundle
-        run: |
-          APP="$(find ~/Library/Developer/Xcode/DerivedData -name 'Lineado.app' -type d | head -1)"
-          [ -n "$APP" ] && scripts/verify-bundle.sh "$APP" || echo "no app built to audit"
+        run: scripts/verify-bundle.sh build/ci/Build/Products/Debug/Lineado.app
