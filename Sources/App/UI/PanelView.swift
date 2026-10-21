@@ -78,7 +78,7 @@ struct PanelView: View {
             HStack(spacing: 8) {
                 TextField("Filter…", text: $app.searchText)
                     .textFieldStyle(.plain)
-                    .font(.callout)
+                    .font(.system(size: ChromeType.filterField))
                     .focused($searchFocused)
                     .onChange(of: searchFocused) { _, focused in
                         app.isSearchFocused = focused

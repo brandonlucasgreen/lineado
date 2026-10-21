@@ -116,3 +116,21 @@ enum IssuePasteboard {
         pasteboard.setString(issue.branchName ?? issue.identifier.lowercased(), forType: .string)
     }
 }
+
+/// Type sizes for the panel's chrome — everything around the rows: the
+/// filter field, both chip rows, group headers, the hint bar and the footer.
+///
+/// Explicit points rather than text styles, because macOS collapses its small
+/// styles together (`.caption` and `.caption2` are both 10pt), which leaves no
+/// room to adjust one step at a time. One place to change, so "a touch bigger"
+/// is a single edit (Brandon, 2026-10-20: the margins were too small to read).
+enum ChromeType {
+    static let filterField: CGFloat = 13.5
+    static let chip: CGFloat = 12.5
+    static let chipCount: CGFloat = 11
+    static let sectionHeader: CGFloat = 11.5
+    static let sectionCount: CGFloat = 10.5
+    static let hint: CGFloat = 11.5
+    static let keyCap: CGFloat = 11
+    static let footer: CGFloat = 11.5
+}

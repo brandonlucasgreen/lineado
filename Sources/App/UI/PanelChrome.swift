@@ -67,7 +67,7 @@ struct WorkspaceChips: View {
                 .padding(.horizontal, 10)
             }
             .scrollIndicators(.never)
-            .frame(height: 24)
+            .frame(height: 27)
             .background(FocusBandBackground(isFocused: app.filterFocus == .workspaces))
             .onTapGesture { app.filterFocus = .workspaces }
         }
@@ -81,13 +81,13 @@ struct WorkspaceChips: View {
             HStack(spacing: 4) {
                 if error != nil {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
+                        .font(.system(size: 9))
                         .foregroundStyle(.orange)
                 }
-                Text(title).font(.system(size: 11, weight: .medium))
+                Text(title).font(.system(size: ChromeType.chip, weight: .medium))
                 if count > 0 {
                     Text("\(count)")
-                        .font(.caption2)
+                        .font(.system(size: ChromeType.chipCount))
                         .foregroundStyle(isSelected ? .primary : .tertiary)
                 }
             }
@@ -132,7 +132,7 @@ struct TeamChips: View {
             .padding(.horizontal, 10)
         }
         .scrollIndicators(.never)
-        .frame(height: 24)
+        .frame(height: 27)
         .background(FocusBandBackground(isFocused: app.filterFocus == .teams))
         .onTapGesture { app.filterFocus = .teams }
     }
@@ -143,9 +143,9 @@ struct TeamChips: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Text(title).font(.system(.caption, design: .monospaced))
+                Text(title).font(.system(size: ChromeType.chip, design: .monospaced))
                 Text("\(count)")
-                    .font(.caption2)
+                    .font(.system(size: ChromeType.chipCount))
                     .foregroundStyle(isSelected ? .primary : .tertiary)
             }
             .padding(.horizontal, 7)
@@ -203,7 +203,7 @@ struct FooterView: View {
                 AllShortcutsView()
             }
         }
-        .font(.caption)
+        .font(.system(size: ChromeType.footer))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

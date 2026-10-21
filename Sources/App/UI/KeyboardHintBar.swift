@@ -10,7 +10,7 @@ struct KeyCap: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .font(.system(size: ChromeType.keyCap, weight: .medium, design: .rounded))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)
             .padding(.vertical, 1.5)
@@ -46,7 +46,7 @@ struct KeyboardHintBar: View {
                             KeyCap(key: String(key))
                         }
                         Text(hint.short)
-                            .font(.system(size: 10))
+                            .font(.system(size: ChromeType.hint))
                             .foregroundStyle(.tertiary)
                             .fixedSize()
                     }
