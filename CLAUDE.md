@@ -43,7 +43,7 @@ lives in a view (the filter focus bands), the test reimplements the rule
 rather than instantiating `AppState`, which would need a Keychain and a run
 loop.
 
-## Eleven things this codebase already learned
+## Thirteen things this codebase already learned
 
 ### 1. Swift's synthesised `Decodable` ignores your default values
 
@@ -200,6 +200,23 @@ inside a shell snippet is not a heading.
 `Tests/OrderingTests.swift` declares `typealias Issue = Lineado.Issue` so tests
 can say `Issue` and mean the app's type. That shadows `Testing.Issue`, so
 recording a failure manually needs the full name: `Testing.Issue.record(...)`.
+
+### 12. CI's SDK is older than yours, and Swift 6 notices
+
+The first CI runs failed on code that compiled locally: a `@Sendable` closure
+captured an `ISO8601DateFormatter`, which only newer SDKs mark `Sendable`, and
+GitHub's `macos-15` runner ships an older one. Under strict concurrency an SDK's
+`Sendable` annotations are part of the language surface, so a local Xcode beta
+is not evidence CI will pass. Prefer value types that have always been
+`Sendable` (`Date.ISO8601FormatStyle`). CI selects the newest Xcode on the image
+and prints its version.
+
+### 13. Nothing from a real workspace goes into a committed file
+
+Design work read the real Linear workspace, and real issue titles and a project
+name were copied into `PLAN.md`, a model comment and a test as examples — then
+had to be scrubbed from history before the repo could go public. Keep the
+numbers and shapes; invent the names (`CORE-1234`, "Website Refresh").
 
 ## Architecture
 
