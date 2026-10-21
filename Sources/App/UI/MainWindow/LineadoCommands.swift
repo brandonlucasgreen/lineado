@@ -10,6 +10,16 @@ import SwiftUI
 /// The Task submenus are populated from the *selected issue's team*, so the
 /// status list is that team's real workflow states and never a workspace-wide
 /// list the mutation would reject.
+///
+/// **Every shortcut here carries ⌘.** These menus belong to the ⌘0 window,
+/// which has a filter field, and AppKit matches menu key equivalents *before*
+/// a focused text field sees the key. Measured 2026-10-21 with a probe that
+/// typed into that field: a bare `b` never arrived — it toggled Show Backlog —
+/// and with the menu's `b` stripped, the same keystroke typed normally. Under
+/// the old bare `E`, typing "e" there would have completed the selected task
+/// in Linear. Each shortcut is the panel's key plus ⌘ (E → ⌘E, B → ⌘B), so it
+/// stays memorable. The panel keeps its single keys: its own key monitor sees
+/// them first and steps aside whenever a text field has focus.
 struct LineadoCommands: Commands {
     let app: AppState
     let updates: UpdateController
@@ -25,14 +35,18 @@ struct LineadoCommands: Commands {
         CommandGroup(replacing: .newItem) {}
 
         CommandGroup(after: .newItem) {
+            // ⌘O, the Mac's Open — not bare Return, which a focused filter
+            // field would lose to this item.
             Button("Open in Linear") { openSelected() }
-                .keyboardShortcut(.return, modifiers: [])
+                .keyboardShortcut("o", modifiers: .command)
                 .disabled(app.selectedIssue == nil)
 
+            // No ⌘C. Claiming it made SwiftUI strip ⌘C from Edit › Copy, and
+            // a probe confirmed the effect: ⌘C with text selected in the
+            // filter field copied the issue link instead. ⌘C belongs to text.
             Button("Copy Link") {
                 if let issue = app.selectedIssue { IssuePasteboard.copy(issue) }
             }
-            .keyboardShortcut("c", modifiers: .command)
             .disabled(app.selectedIssue == nil)
 
             Button("Copy Branch Name") {
@@ -54,7 +68,7 @@ struct LineadoCommands: Commands {
             Button("Complete") {
                 if let issue = app.selectedIssue { app.complete(issue) }
             }
-            .keyboardShortcut("e", modifiers: [])
+            .keyboardShortcut("e", modifiers: .command)
             .disabled(app.selectedIssue == nil)
 
             Divider()
@@ -101,7 +115,9 @@ struct LineadoCommands: Commands {
             .disabled(app.selectedIssue == nil)
         }
 
-        CommandMenu("View") {
+        // Into the standard View menu, not a second one: `CommandMenu("View")`
+        // created a duplicate beside SwiftUI's own, which sat there empty.
+        CommandGroup(before: .toolbar) {
             Picker("Group By", selection: Binding(
                 get: { app.preferences.groupBy },
                 set: { app.preferences.groupBy = $0 })) {
@@ -123,7 +139,7 @@ struct LineadoCommands: Commands {
             Toggle("Show Backlog", isOn: Binding(
                 get: { app.preferences.showsBacklog },
                 set: { app.preferences.showsBacklog = $0 }))
-                .keyboardShortcut("b", modifiers: [])
+                .keyboardShortcut("b", modifiers: .command)
 
             Divider()
 

@@ -250,6 +250,20 @@ struct PanelView: View {
     private func startKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // **Only keys aimed at the panel.** A local monitor sees every key
+            // the whole app receives, and this one outlives the panel being
+            // hidden — `onDisappear` does not fire when its window is merely
+            // ordered out. Without this check a probe caught it acting in the
+            // ⌘0 window: ⌘C copied the issue link when no menu item owned ⌘C,
+            // and outside a text field a bare `e` would have completed the
+            // selected task from Settings or the main window (2026-10-21).
+            //
+            // `event.window`, falling back to the key window: a key event can
+            // arrive with no window attached (a probe's synthetic ⌘0 did), and
+            // treating that as "not the panel" made ⌘0 stop opening the window.
+            guard let window = event.window ?? NSApp.keyWindow,
+                  window is KeyablePanel, window.isVisible
+            else { return event }
             // A picker owns the keyboard while it is up: it has its own field
             // and its own ↑/↓, and letting the list also act on those keys is
             // how a picker ends up moving the selection behind itself.
@@ -259,7 +273,7 @@ struct PanelView: View {
             // except for Esc, which is always ours. Letting it through would
             // hit the panel's default `cancelOperation:` and dismiss the whole
             // thing, when what Esc should do first is clear the field.
-            guard !isEditingText || key == .escape else { return event }
+            guard !isEditingText(in: window) || key == .escape else { return event }
             let modifiers = KeyModifiers(event.modifierFlags)
             guard let action = KeyMap.action(
                 for: key, modifiers: modifiers, isSearching: app.isSearchFocused)
@@ -283,8 +297,11 @@ struct PanelView: View {
     ///
     /// When text has focus the panel keeps its hands off entirely, including
     /// `⌘C` and `⌘Z`, which must mean copy-text and undo-typing there.
-    private var isEditingText: Bool {
-        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+    /// Judged on the window the key is for, not `NSApp.keyWindow`, which is
+    /// nil whenever the app is inactive and so answered "not typing" exactly
+    /// when it should not be trusted.
+    private func isEditingText(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
         if let textView = responder as? NSTextView { return textView.isFieldEditor || textView.isEditable }
         return responder is NSTextField
     }
@@ -375,8 +392,24 @@ struct PanelView: View {
             // `NSApp.sendAction(Selector(("openMainWindow:")))` was a guess and
             // no such selector exists, so ⌘0 silently did nothing. The scene's
             // own id is the supported route.
-            menuBar?.close()
+            //
+            // **Open first, bring it forward, close the panel last** — the same
+            // order Settings needs, and for the same reason. Closing the panel
+            // first could leave the app inactive, and a probe found the window
+            // created but never shown: `visible=false`, not on the active
+            // Space (2026-10-21). So from a full-screen app or another Space,
+            // ⌘0 looked like it did nothing.
             openWindow(id: "main")
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                    // Come to the user's Space rather than send them to its.
+                    window.collectionBehavior.insert(.moveToActiveSpace)
+                    window.makeKeyAndOrderFront(nil)
+                    window.orderFrontRegardless()
+                }
+                menuBar?.close()
+            }
         }
     }
 
